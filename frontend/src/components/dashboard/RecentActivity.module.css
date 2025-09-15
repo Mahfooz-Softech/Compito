@@ -1,0 +1,124 @@
+/* RecentActivity.module.css */
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+.activityItem {
+  animation: slideInFromLeft 0.6s ease-out forwards;
+  opacity: 0;
+}
+
+.activityItem:nth-child(1) { animation-delay: 0.1s; }
+.activityItem:nth-child(2) { animation-delay: 0.2s; }
+.activityItem:nth-child(3) { animation-delay: 0.3s; }
+.activityItem:nth-child(4) { animation-delay: 0.4s; }
+.activityItem:nth-child(5) { animation-delay: 0.5s; }
+
+.priorityIndicator {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200px 100%;
+  animation: shimmer 2s infinite;
+}
+
+.hoverLift {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hoverLift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.iconGlow {
+  transition: all 0.3s ease;
+}
+
+.iconGlow:hover {
+  filter: drop-shadow(0 0 8px currentColor);
+  transform: scale(1.1);
+}
+
+.statusBadge {
+  transition: all 0.2s ease;
+}
+
+.statusBadge:hover {
+  transform: scale(1.05);
+}
+
+.avatarGlow {
+  transition: all 0.3s ease;
+}
+
+.avatarGlow:hover {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+  transform: scale(1.1);
+}
+
+.gradientText {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.cardHeader {
+  animation: fadeInUp 0.8s ease-out forwards;
+}
+
+.emptyState {
+  animation: fadeInUp 1s ease-out forwards;
+}
+
+.countIndicator {
+  animation: fadeInUp 0.6s ease-out forwards;
+  animation-delay: 0.8s;
+  opacity: 0;
+}
+
+
+
+
+
+
+
