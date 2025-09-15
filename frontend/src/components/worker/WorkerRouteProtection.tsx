@@ -30,7 +30,7 @@ export const WorkerRouteProtection: React.FC<WorkerRouteProtectionProps> = ({ ch
     }
 
     try {
-      // Check if worker account is deactivated
+      // Check worker account status via worker_account_status table
       const response = await apiClient.get(`/worker-account-status/${user.id}`);
       
       if (response.error) {

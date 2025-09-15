@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
 import { WorkerProfileDrawer } from '@/components/admin/WorkerProfileDrawer';
-import { supabase } from '@/integrations/supabase/client';
+import apiClient from '@/lib/apiClient';
 import { toast } from 'sonner';
 import { 
   Users, 
@@ -97,125 +97,32 @@ export const WorkerAccountManagement = () => {
   const fetchWorkers = async () => {
     try {
       setLoading(true);
-      
-      console.log('Fetching workers from worker_profiles table...');
-      
-      // Fetch workers directly from worker_profiles table
-      const { data: workerProfiles, error: workerError } = await supabase
-        .from('worker_profiles')
-        .select(`
-          id,
-          category_id,
-          completed_jobs
-        `);
+      const { data, error } = await apiClient.get('/admin/worker-accounts');
+      if (error) throw error;
+      const list = Array.isArray(data) ? data : [];
 
-      if (workerError) {
-        console.error('Error fetching worker profiles:', workerError);
-        throw workerError;
-      }
+      // Enrich with true is_active from worker_account_status table
+      const enriched: WorkerAccount[] = await Promise.all(
+        (list as WorkerAccount[]).map(async (w: WorkerAccount) => {
+          try {
+            const res = await apiClient.get(`/worker-account-status/${w.worker_id}`);
+            const status: Partial<WorkerAccount & { is_active: boolean; deactivation_reason?: string | null; deactivated_at?: string | null; reactivated_at?: string | null; reactivation_reason?: string | null; }>
+              = (res?.data as any) || {};
+            return {
+              ...w,
+              is_active: status.is_active ?? w.is_active,
+              deactivation_reason: status.deactivation_reason ?? w.deactivation_reason,
+              deactivated_at: status.deactivated_at ?? w.deactivated_at,
+              reactivated_at: status.reactivated_at ?? w.reactivated_at,
+              reactivation_reason: status.reactivation_reason ?? w.reactivation_reason,
+            } as WorkerAccount;
+          } catch {
+            return w;
+          }
+        })
+      );
 
-      // Get profile data for workers
-      const workerIds = workerProfiles?.map(wp => wp.id) || [];
-      if (workerIds.length === 0) {
-        setWorkers([]);
-        return;
-      }
-
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, first_name, last_name, created_at, user_type')
-        .in('id', workerIds)
-        .eq('user_type', 'worker');
-
-      if (profilesError) {
-        console.error('Error fetching profiles:', profilesError);
-        throw profilesError;
-      }
-
-      // Get category data
-      const categoryIds = workerProfiles?.map(wp => wp.category_id).filter(Boolean) || [];
-      const { data: categories, error: categoriesError } = await supabase
-        .from('worker_categories')
-        .select('id, name, description')
-        .in('id', categoryIds);
-
-      if (categoriesError) {
-        console.error('Error fetching categories:', categoriesError);
-        throw categoriesError;
-      }
-
-      // Get account status for workers (if table exists)
-      let accountStatuses: any[] = [];
-      try {
-        const { data: statusData, error: statusError } = await supabase
-          .from('worker_account_status' as any)
-          .select('worker_id, is_active, deactivated_at, deactivation_reason, reactivated_at, reactivation_reason, last_activity_check')
-          .in('worker_id', workerIds);
-
-        if (statusError) {
-          console.error('Error fetching account statuses:', statusError);
-          // Continue without status data
-        } else {
-          accountStatuses = statusData || [];
-        }
-      } catch (error) {
-        console.log('worker_account_status table not available yet, continuing without status data');
-      }
-
-      // Transform data to match expected format
-      const transformedData = profiles?.map(profile => {
-        const workerProfile = workerProfiles?.find(wp => wp.id === profile.id);
-        const category = categories?.find(cat => cat.id === workerProfile?.category_id);
-        const accountStatus = accountStatuses?.find(as => as.worker_id === profile.id);
-        
-        const monthsSinceCreation = Math.floor(
-          (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24 * 30)
-        );
-        
-        const completedJobs = workerProfile?.completed_jobs || 0;
-        
-                 // Calculate risk level based on months and completed jobs
-         let calculatedRiskLevel = 'No Risk';
-         if (monthsSinceCreation >= 3 && completedJobs === 0) {
-           calculatedRiskLevel = 'High Risk';
-         } else if (monthsSinceCreation >= 2 && completedJobs === 0) {
-           calculatedRiskLevel = 'Medium Risk';
-         } else if (monthsSinceCreation >= 1 && completedJobs === 0) {
-           calculatedRiskLevel = 'Low Risk';
-         }
-         
-         // Check if worker should be automatically deactivated
-         const shouldAutoDeactivate = category?.name === 'Starter' && 
-                                    monthsSinceCreation >= 3 && 
-                                    completedJobs === 0;
-         
-         // Auto-deactivate if criteria are met
-         if (shouldAutoDeactivate && accountStatus?.is_active !== false) {
-           autoDeactivateWorker(profile.id, monthsSinceCreation, completedJobs);
-         }
-         
-         return {
-           worker_id: profile.id,
-           first_name: profile.first_name || '',
-           last_name: profile.last_name || '',
-           email: 'N/A', // Email not available in profiles table
-           created_at: profile.created_at,
-           category_name: category?.name || 'Unknown',
-           category_description: category?.description || '',
-           is_active: accountStatus?.is_active ?? true,
-           deactivated_at: accountStatus?.deactivated_at || null,
-           deactivation_reason: accountStatus?.deactivation_reason || null,
-           reactivated_at: accountStatus?.reactivated_at || null,
-           reactivation_reason: accountStatus?.reactivation_reason || null,
-           last_activity_check: accountStatus?.last_activity_check || null,
-           months_since_creation: monthsSinceCreation,
-           unique_customers_count: completedJobs,
-           risk_level: calculatedRiskLevel
-         };
-      }) || [];
-
-      console.log('Successfully transformed workers:', transformedData);
-      setWorkers(transformedData);
+      setWorkers(enriched);
     } catch (error) {
       console.error('Error fetching workers:', error);
       toast.error('Failed to fetch worker accounts');
@@ -224,29 +131,7 @@ export const WorkerAccountManagement = () => {
     }
   };
 
-  // Function to automatically deactivate high-risk workers
-  const autoDeactivateWorker = async (workerId: string, monthsOld: number, completedJobs: number) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const deactivationReason = `Auto-deactivated: Starter worker for ${monthsOld} months with ${completedJobs} completed jobs`;
-      
-      const { error } = await supabase.rpc('admin_manual_deactivate_worker' as any, {
-        worker_id_param: workerId,
-        admin_id_param: user.id,
-        deactivation_reason_param: deactivationReason
-      });
-
-      if (error) {
-        console.error('Error auto-deactivating worker:', error);
-      } else {
-        console.log(`Auto-deactivated worker ${workerId} due to high risk`);
-      }
-    } catch (error) {
-      console.error('Error in auto-deactivation:', error);
-    }
-  };
+  // Removed autoDeactivateWorker (handled by backend processes)
 
   const handleManualAction = async () => {
     if (!selectedWorker || !actionReason.trim()) {
@@ -256,31 +141,18 @@ export const WorkerAccountManagement = () => {
 
     setProcessing(true);
     try {
-      // Get current user ID (admin)
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error('Admin authentication required');
-        return;
-      }
-
       if (actionType === 'deactivate') {
-        // Use the new admin function for manual deactivation
-        const { error } = await supabase.rpc('admin_manual_deactivate_worker' as any, {
-          worker_id_param: selectedWorker.worker_id,
-          admin_id_param: user.id,
-          deactivation_reason_param: actionReason
+        const { error } = await apiClient.post('/admin/worker-accounts/deactivate', {
+          worker_id: selectedWorker.worker_id,
+          reason: actionReason,
         });
-
         if (error) throw error;
         toast.success('Worker account deactivated successfully');
       } else {
-        // Use the new admin function for manual reactivation
-        const { error } = await supabase.rpc('admin_manual_reactivate_worker' as any, {
-          worker_id_param: selectedWorker.worker_id,
-          admin_id_param: user.id,
-          reactivation_reason_param: actionReason
+        const { error } = await apiClient.post('/admin/worker-accounts/reactivate', {
+          worker_id: selectedWorker.worker_id,
+          reason: actionReason,
         });
-
         if (error) throw error;
         toast.success('Worker account reactivated successfully');
       }
@@ -298,7 +170,7 @@ export const WorkerAccountManagement = () => {
 
   const runPeriodicCheck = async () => {
     try {
-      const { error } = await supabase.rpc('run_periodic_deactivation_check' as any);
+      const { error } = await apiClient.post('/admin/worker-accounts/periodic-check', {});
       if (error) throw error;
 
       toast.success('Periodic deactivation check completed');

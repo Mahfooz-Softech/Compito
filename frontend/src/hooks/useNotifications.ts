@@ -1,133 +1,89 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { apiClient } from '../lib/apiClient';
-import { Notification, CreateNotificationParams } from '../integrations/supabase/types';
-import { useAuth } from '../contexts/AuthContext';
+import { useEffect, useState, useCallback } from 'react';
+import { apiClient } from '@/lib/apiClient';
+
+export type AppNotification = {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  data?: any;
+  is_read: boolean;
+  created_at?: string;
+};
 
 export const useNotifications = () => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const { user } = useAuth();
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
 
-  // Memoize the user ID to prevent unnecessary re-renders
-  const userId = useMemo(() => user?.id, [user?.id]);
-
-  // Fetch notifications for the current user
-  const fetchNotifications = useCallback(async () => {
-    if (!userId) return;
-    
-    setLoading(true);
+  const fetchNotifications = useCallback(async (filters?: { type?: string; is_read?: boolean }) => {
     try {
-      const response = await apiClient.get('/notifications', { 
-        params: { user_id: userId } 
-      });
-      
-      if (response.error) {
-        throw new Error(response.error);
-      }
-      
-      const data = response.data || [];
-      setNotifications(data);
-      const initialUnreadCount = data?.filter(n => !n.is_read).length || 0;
-      console.log('useNotifications: initial fetch - unreadCount set to:', initialUnreadCount);
-      setUnreadCount(initialUnreadCount);
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
+      setLoading(true);
+      const query: any = {};
+      if (filters?.type) query.type = filters.type;
+      if (typeof filters?.is_read === 'boolean') query.is_read = filters.is_read;
+      const { data, error } = await apiClient.get('/notifications', query);
+      if (error) throw error;
+      setNotifications(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Error fetching notifications:', e);
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, []);
 
-  // Mark a notification as read
-  const markAsRead = useCallback(async (notificationId: string) => {
+  const fetchUnreadCount = useCallback(async () => {
     try {
-      await apiClient.put(`/notifications/${notificationId}/read`, { is_read: true });
-
-      // Update local state
-      setNotifications(prev => 
-        prev.map(n => 
-          n.id === notificationId ? { ...n, is_read: true } : n
-        )
-      );
-      setUnreadCount(prev => {
-        const newCount = Math.max(0, prev - 1);
-        console.log('useNotifications: markAsRead - unreadCount changed from', prev, 'to', newCount);
-        return newCount;
-      });
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
+      const { data, error } = await apiClient.get('/notifications/unread-count');
+      if (error) throw error;
+      setUnreadCount(Number(data) || 0);
+    } catch (e) {
+      console.error('Error fetching unread count:', e);
     }
   }, []);
 
-  // Mark all notifications as read
+  const markAsRead = useCallback(async (id: string, isRead = true) => {
+    try {
+      const { error } = await apiClient.put(`/notifications/${id}/read`, { is_read: isRead });
+      if (error) throw error;
+      await Promise.all([fetchNotifications(), fetchUnreadCount()]);
+    } catch (e) {
+      console.error('Error marking notification as read:', e);
+    }
+  }, [fetchNotifications, fetchUnreadCount]);
+
   const markAllAsRead = useCallback(async () => {
-    if (!userId) return;
-    
     try {
-      await apiClient.put('/notifications/mark-all-read', { user_id: userId });
-
-      // Update local state
-      setNotifications(prev => 
-        prev.map(n => ({ ...n, is_read: true }))
-      );
-      console.log('useNotifications: markAllAsRead - unreadCount set to 0');
-      setUnreadCount(0);
-    } catch (error) {
-      console.error('Error marking all notifications as read:', error);
+      const { error } = await apiClient.put('/notifications/mark-all-read', {});
+      if (error) throw error;
+      await Promise.all([fetchNotifications(), fetchUnreadCount()]);
+    } catch (e) {
+      console.error('Error marking all as read:', e);
     }
-  }, [userId]);
+  }, [fetchNotifications, fetchUnreadCount]);
 
-  // Create a new notification (for admin use)
-  const createNotification = useCallback(async (params: CreateNotificationParams) => {
-    try {
-      await apiClient.post('/notifications', params);
-      return true;
-    } catch (error) {
-      console.error('Error creating notification:', error);
-      return false;
-    }
-  }, []);
-
-  // Get unread count for a specific user
-  const getUnreadCount = useCallback(async (userId: string) => {
-    try {
-      const response = await apiClient.get('/notifications/unread-count', { params: { user_id: userId } });
-      return response.data || 0;
-    } catch (error) {
-      console.error('Error getting unread count:', error);
-      return 0;
-    }
-  }, []);
-
-  // Poll for new notifications every 10 seconds
-  useEffect(() => {
-    if (!userId) return;
-
-    const interval = setInterval(() => {
-      fetchNotifications();
-    }, 10000); // Poll every 10 seconds
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [userId, fetchNotifications]);
-
-  // Initial fetch
   useEffect(() => {
     fetchNotifications();
-  }, [fetchNotifications]);
+    fetchUnreadCount();
+  }, [fetchNotifications, fetchUnreadCount]);
 
-  // Memoize the return value to prevent unnecessary re-renders
-  const returnValue = useMemo(() => ({
+  // Poll periodically for fresh notifications
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchNotifications();
+      fetchUnreadCount();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications, fetchUnreadCount]);
+
+  return {
+    loading,
     notifications,
     unreadCount,
-    loading,
+    refetch: fetchNotifications,
+    refreshUnread: fetchUnreadCount,
     markAsRead,
     markAllAsRead,
-    createNotification,
-    getUnreadCount,
-    fetchNotifications
-  }), [notifications, unreadCount, loading, markAsRead, markAllAsRead, createNotification, getUnreadCount, fetchNotifications]);
-
-  return returnValue;
+  };
 };

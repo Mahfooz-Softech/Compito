@@ -54,7 +54,7 @@ const CustomerBrowse = () => {
       return matchesSearch && matchesCategory && matchesLocation && matchesOnlineFilter;
     });
   }, [allServices, searchTerm, selectedCategory, locationFilter, onlineOnly]);
-
+  console.log("Filtered services are ===> ",filteredServices);
   // Memoize handlers to prevent unnecessary re-renders
   const handleFindWorkers = useCallback((service: any) => {
     setSelectedService(service);

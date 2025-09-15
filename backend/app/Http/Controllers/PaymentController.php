@@ -266,6 +266,43 @@ class PaymentController extends Controller
                 'is_read' => false,
             ]);
 
+            // Create notification for customer (payment success)
+            Notification::create([
+                'id' => (string) Str::uuid(),
+                'user_id' => $profile->id,
+                'type' => 'payment_succeeded',
+                'title' => 'Payment Succeeded',
+                'message' => 'Your payment has been completed successfully and booking is confirmed.',
+                'data' => json_encode([
+                    'booking_id' => $booking->id,
+                    'offer_id' => $offer->id,
+                    'worker_id' => $offer->worker_id
+                ]),
+                'is_read' => false,
+            ]);
+
+            // Notify admin(s) on payment completed
+            try {
+                $admins = Profile::where('user_type', 'admin')->pluck('id');
+                foreach ($admins as $adminId) {
+                    Notification::create([
+                        'id' => (string) Str::uuid(),
+                        'user_id' => $adminId,
+                        'type' => 'payment_completed_admin',
+                        'title' => 'Payment Completed',
+                        'message' => 'Booking ' . $booking->id . ' has been paid. Amount: $' . number_format($booking->total_amount, 2),
+                        'data' => json_encode([
+                            'booking_id' => $booking->id,
+                            'customer_id' => $profile->id,
+                            'worker_id' => $offer->worker_id,
+                        ]),
+                        'is_read' => false,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('Admin payment notification failed: ' . $e->getMessage());
+            }
+
             DB::commit();
 
             return response()->json([
@@ -283,6 +320,168 @@ class PaymentController extends Controller
             DB::rollBack();
             \Log::error('Error completing payment: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to complete payment'], 500);
+        }
+    }
+
+    /**
+     * Simulate payment cancellation (notification only)
+     */
+    public function cancelPayment(Request $request)
+    {
+        try {
+            $authUser = Auth::user();
+            if (!$authUser) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
+
+            $profile = Profile::where('id', $authUser->id)->first();
+            if (!$profile) {
+                return response()->json(['error' => 'Profile not found'], 404);
+            }
+
+            $offerId = $request->input('offerId');
+            if (!$offerId) {
+                return response()->json(['error' => 'Offer ID is required'], 400);
+            }
+
+            $offer = Offer::where('id', $offerId)
+                ->where('customer_id', $profile->id)
+                ->first();
+            if (!$offer) {
+                return response()->json(['error' => 'Offer not found'], 404);
+            }
+
+            // Notify both parties of cancellation
+            Notification::create([
+                'id' => (string) Str::uuid(),
+                'user_id' => $profile->id,
+                'type' => 'payment_cancelled',
+                'title' => 'Payment Cancelled',
+                'message' => 'Your payment was cancelled. No booking was created.',
+                'data' => json_encode([
+                    'offer_id' => $offer->id,
+                    'worker_id' => $offer->worker_id
+                ]),
+                'is_read' => false,
+            ]);
+            // Notify admin(s)
+            try {
+                $admins = Profile::where('user_type', 'admin')->pluck('id');
+                foreach ($admins as $adminId) {
+                    Notification::create([
+                        'id' => (string) Str::uuid(),
+                        'user_id' => $adminId,
+                        'type' => 'payment_cancelled_admin',
+                        'title' => 'Payment Cancelled',
+                        'message' => 'Payment cancelled for offer ' . $offer->id,
+                        'data' => json_encode([
+                            'offer_id' => $offer->id,
+                            'customer_id' => $profile->id
+                        ]),
+                        'is_read' => false,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('Admin payment cancel notification failed: ' . $e->getMessage());
+            }
+            Notification::create([
+                'id' => (string) Str::uuid(),
+                'user_id' => $offer->worker_id,
+                'type' => 'payment_cancelled',
+                'title' => 'Payment Cancelled',
+                'message' => 'The customer cancelled the payment for your offer.',
+                'data' => json_encode([
+                    'offer_id' => $offer->id,
+                    'customer_id' => $profile->id
+                ]),
+                'is_read' => false,
+            ]);
+            // Notify admin(s)
+            try {
+                $admins = Profile::where('user_type', 'admin')->pluck('id');
+                foreach ($admins as $adminId) {
+                    Notification::create([
+                        'id' => (string) Str::uuid(),
+                        'user_id' => $adminId,
+                        'type' => 'payment_failed_admin',
+                        'title' => 'Payment Failed',
+                        'message' => 'Payment failed for offer ' . $offer->id,
+                        'data' => json_encode([
+                            'offer_id' => $offer->id,
+                            'customer_id' => $profile->id
+                        ]),
+                        'is_read' => false,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('Admin payment fail notification failed: ' . $e->getMessage());
+            }
+
+            return response()->json(['success' => true]);
+        } catch (\Throwable $e) {
+            \Log::error('Error cancelling payment: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to cancel payment'], 500);
+        }
+    }
+
+    /**
+     * Simulate payment failure (notification only)
+     */
+    public function failPayment(Request $request)
+    {
+        try {
+            $authUser = Auth::user();
+            if (!$authUser) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
+
+            $profile = Profile::where('id', $authUser->id)->first();
+            if (!$profile) {
+                return response()->json(['error' => 'Profile not found'], 404);
+            }
+
+            $offerId = $request->input('offerId');
+            if (!$offerId) {
+                return response()->json(['error' => 'Offer ID is required'], 400);
+            }
+
+            $offer = Offer::where('id', $offerId)
+                ->where('customer_id', $profile->id)
+                ->first();
+            if (!$offer) {
+                return response()->json(['error' => 'Offer not found'], 404);
+            }
+
+            // Notify both parties of failure
+            Notification::create([
+                'id' => (string) Str::uuid(),
+                'user_id' => $profile->id,
+                'type' => 'payment_failed',
+                'title' => 'Payment Failed',
+                'message' => 'Your payment failed. Please try again.',
+                'data' => json_encode([
+                    'offer_id' => $offer->id,
+                    'worker_id' => $offer->worker_id
+                ]),
+                'is_read' => false,
+            ]);
+            Notification::create([
+                'id' => (string) Str::uuid(),
+                'user_id' => $offer->worker_id,
+                'type' => 'payment_failed',
+                'title' => 'Payment Failed',
+                'message' => 'Customer payment failed for your offer.',
+                'data' => json_encode([
+                    'offer_id' => $offer->id,
+                    'customer_id' => $profile->id
+                ]),
+                'is_read' => false,
+            ]);
+
+            return response()->json(['success' => true]);
+        } catch (\Throwable $e) {
+            \Log::error('Error failing payment: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to mark payment failed'], 500);
         }
     }
 

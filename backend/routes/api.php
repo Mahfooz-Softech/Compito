@@ -29,6 +29,10 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
+// TEMP debug endpoints (no auth) for testing worker status flows
+Route::get('/debug/worker-status/{workerId}', [AdminController::class, 'debugGetWorkerStatus']);
+Route::post('/debug/force-deactivate/{workerId}', [AdminController::class, 'debugForceDeactivate']);
+
 // Authentication routes (public)
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -87,6 +91,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/admin/worker-accounts/deactivate', [AdminController::class, 'deactivateWorkerAccount']);
     Route::post('/admin/worker-accounts/reactivate', [AdminController::class, 'reactivateWorkerAccount']);
     Route::post('/admin/worker-accounts/periodic-check', [AdminController::class, 'runPeriodicDeactivationCheck']);
+    // Debug helpers (temporarily exposed while testing)
+    Route::get('/admin/debug/worker-status/{workerId}', [AdminController::class, 'debugGetWorkerStatus']);
+    Route::post('/admin/debug/force-deactivate/{workerId}', [AdminController::class, 'debugForceDeactivate']);
+    // Reactivation requests
+    Route::get('/account-activation-requests', [AdminController::class, 'getAccountActivationRequests']);
+    Route::post('/account-activation-requests', [AdminController::class, 'createAccountActivationRequest']);
+    Route::put('/account-activation-requests/{id}', [AdminController::class, 'updateAccountActivationRequest']);
 
     // Worker account status routes
     Route::get('/worker-account-status/{workerId}', [AdminController::class, 'getWorkerAccountStatus']);
@@ -186,6 +197,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Payment routes
     Route::post('/payments/create-checkout', [CheckoutController::class, 'createCheckout']);
     Route::post('/payments/complete', [PaymentController::class, 'completePayment']);
+    Route::post('/payments/cancel', [PaymentController::class, 'cancelPayment']);
+    Route::post('/payments/fail', [PaymentController::class, 'failPayment']);
     Route::get('/payments/status', [PaymentController::class, 'getPaymentStatus']);
 
     // Dashboard routes

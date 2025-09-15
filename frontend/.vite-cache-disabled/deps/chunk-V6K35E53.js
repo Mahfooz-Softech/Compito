@@ -1,6 +1,6 @@
 import {
   useLayoutEffect2
-} from "./chunk-JTBA672L.js";
+} from "./chunk-TOL7XQBR.js";
 import {
   require_react
 } from "./chunk-FXJVXTVJ.js";
@@ -48,4 +48,4 @@ function useSize(element) {
 export {
   useSize
 };
-//# sourceMappingURL=chunk-U6HL7V4Z.js.map
+//# sourceMappingURL=chunk-V6K35E53.js.map

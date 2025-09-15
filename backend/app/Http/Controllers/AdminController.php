@@ -19,6 +19,7 @@ use App\Models\AdminUser;
 use App\Models\Notification;
 use App\Models\AccountActivationRequest;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Schema;
 
 class AdminController extends Controller
 {
@@ -158,6 +159,53 @@ class AdminController extends Controller
         } catch (\Throwable $e) {
             \Log::error('Error fetching admin data: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to fetch admin data'], 500);
+        }
+    }
+
+    /**
+     * DEBUG: Get raw worker_account_status row
+     */
+    public function debugGetWorkerStatus($workerId)
+    {
+        try {
+            $row = DB::table('worker_account_status')->where('worker_id', $workerId)->first();
+            return response()->json(['worker_id' => $workerId, 'status' => $row]);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * DEBUG: Force deactivate logic for a worker (no auth)
+     */
+    public function debugForceDeactivate($workerId)
+    {
+        try {
+            $reason = 'Debug deactivate';
+            $worker = WorkerProfile::findOrFail($workerId);
+            $worker->is_available = false;
+            $worker->save();
+
+            $cols = Schema::getColumnListing('worker_account_status');
+            $base = ['worker_id' => $workerId, 'is_active' => false];
+            if (in_array('deactivated_at', $cols)) { $base['deactivated_at'] = now(); }
+            if (in_array('deactivation_reason', $cols)) { $base['deactivation_reason'] = $reason; }
+            if (in_array('updated_at', $cols)) { $base['updated_at'] = now(); }
+            if (in_array('created_at', $cols) && !DB::table('worker_account_status')->where('worker_id', $workerId)->exists()) {
+                $base['created_at'] = now();
+            }
+            if (DB::table('worker_account_status')->where('worker_id', $workerId)->exists()) {
+                DB::table('worker_account_status')->where('worker_id', $workerId)->update($base);
+            } else {
+                // Ensure primary key id is provided if table requires it
+                if (in_array('id', $cols)) { $base['id'] = (string) Str::uuid(); }
+                DB::table('worker_account_status')->insert($base);
+            }
+
+            $row = DB::table('worker_account_status')->where('worker_id', $workerId)->first();
+            return response()->json(['ok' => true, 'status' => $row]);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
@@ -321,15 +369,167 @@ class AdminController extends Controller
     {
         try {
             $status = $request->query('status');
+            $workerId = $request->query('worker_id');
             $q = AccountActivationRequest::query();
             if ($status) {
                 $q->where('status', $status);
             }
+            if ($workerId) {
+                $q->where('worker_id', $workerId);
+            }
             $requests = $q->orderBy('created_at', 'desc')->get();
-            return response()->json(['success' => true, 'requests' => $requests]);
+            // Return plain array to match frontend expectations
+            return response()->json($requests);
         } catch (\Throwable $e) {
             \Log::error('getAccountActivationRequests error: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to fetch requests'], 500);
+        }
+    }
+
+    /**
+     * Create a reactivation request (worker → admin)
+     */
+    public function createAccountActivationRequest(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'worker_id' => 'required|string',
+                'request_reason' => 'required|string',
+            ]);
+
+            // Insert new request as pending
+            $id = (string) Str::uuid();
+            DB::table('account_activation_requests')->insert([
+                'id' => $id,
+                'worker_id' => $validated['worker_id'],
+                'request_reason' => $validated['request_reason'],
+                'status' => 'pending',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            // Notify admins
+            try {
+                $admins = Profile::where('user_type', 'admin')->pluck('id');
+                foreach ($admins as $adminId) {
+                    Notification::create([
+                        'id' => (string) Str::uuid(),
+                        'user_id' => $adminId,
+                        'type' => 'reactivation_request_admin',
+                        'title' => 'Reactivation Request',
+                        'message' => 'Worker requested reactivation.',
+                        'data' => json_encode([
+                            'request_id' => $id,
+                            'worker_id' => $validated['worker_id'],
+                        ]),
+                        'is_read' => false,
+                    ]);
+                }
+            } catch (\Throwable $e) {}
+
+            return response()->json(['success' => true, 'id' => $id], 201);
+        } catch (\Throwable $e) {
+            \Log::error('createAccountActivationRequest error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to create request'], 500);
+        }
+    }
+
+    /**
+     * Update reactivation request (admin action: approve/reject)
+     */
+    public function updateAccountActivationRequest(Request $request, $id)
+    {
+        try {
+            // Accept both admin_note and admin_notes from frontend
+            $validated = $request->validate([
+                'status' => 'required|string|in:approved,rejected,pending',
+                'admin_note' => 'nullable|string',
+                'admin_notes' => 'nullable|string',
+                'processed_at' => 'nullable|date',
+            ]);
+
+            $req = DB::table('account_activation_requests')->where('id', $id)->first();
+            if (!$req) {
+                return response()->json(['error' => 'Request not found'], 404);
+            }
+
+            $update = [
+                'status' => $validated['status'],
+                'updated_at' => now(),
+            ];
+            // Determine which admin notes column exists
+            try {
+                $cols = \Schema::getColumnListing('account_activation_requests');
+                $notesValue = $validated['admin_note'] ?? ($validated['admin_notes'] ?? null);
+                if (in_array('admin_note', $cols)) {
+                    $update['admin_note'] = $notesValue;
+                } elseif (in_array('admin_notes', $cols)) {
+                    $update['admin_notes'] = $notesValue;
+                }
+                if (in_array('processed_at', $cols)) {
+                    $update['processed_at'] = $validated['processed_at'] ?? now();
+                }
+                if (in_array('processed_by', $cols)) {
+                    $update['processed_by'] = \Auth::id();
+                }
+            } catch (\Throwable $e) {}
+            DB::table('account_activation_requests')->where('id', $id)->update($update);
+
+            // If approved → reactivate via status table and notify worker
+            if ($validated['status'] === 'approved') {
+                $cols = Schema::getColumnListing('worker_account_status');
+                $exists = DB::table('worker_account_status')->where('worker_id', $req->worker_id)->exists();
+                if ($exists) {
+                    $update = [
+                        'is_active' => true,
+                        'reactivated_at' => now(),
+                    ];
+                    if (in_array('updated_at', $cols)) { $update['updated_at'] = now(); }
+                    DB::table('worker_account_status')->where('worker_id', $req->worker_id)->update($update);
+                } else {
+                    $insert = [
+                        'worker_id' => $req->worker_id,
+                        'is_active' => true,
+                    ];
+                    if (in_array('id', $cols)) { $insert['id'] = (string) Str::uuid(); }
+                    if (in_array('reactivated_at', $cols)) { $insert['reactivated_at'] = now(); }
+                    if (in_array('created_at', $cols)) { $insert['created_at'] = now(); }
+                    if (in_array('updated_at', $cols)) { $insert['updated_at'] = now(); }
+                    DB::table('worker_account_status')->insert($insert);
+                }
+
+                // Notify worker
+                try {
+                    Notification::create([
+                        'id' => (string) Str::uuid(),
+                        'user_id' => $req->worker_id,
+                        'type' => 'account_reactivated',
+                        'title' => 'Account Reactivated',
+                        'message' => 'Your reactivation request was approved by admin.',
+                        'data' => json_encode(['request_id' => $id]),
+                        'is_read' => false,
+                    ]);
+                } catch (\Throwable $e) {}
+            }
+
+            if ($validated['status'] === 'rejected') {
+                try {
+                    Notification::create([
+                        'id' => (string) Str::uuid(),
+                        'user_id' => $req->worker_id,
+                        'type' => 'reactivation_rejected',
+                        'title' => 'Reactivation Rejected',
+                        'message' => 'Your reactivation request was rejected by admin.',
+                        'data' => json_encode(['request_id' => $id]),
+                        'is_read' => false,
+                    ]);
+                } catch (\Throwable $e) {}
+            }
+
+            return response()->json(['success' => true]);
+        } catch (\Throwable $e) {
+            \Log::error('updateAccountActivationRequest error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to update request'], 500);
         }
     }
 
@@ -405,6 +605,38 @@ class AdminController extends Controller
             $worker->is_available = false;
             $worker->save();
 
+            // Upsert into worker_account_status using only existing columns
+            $cols = Schema::getColumnListing('worker_account_status');
+            $base = ['worker_id' => $workerId, 'is_active' => false];
+            if (in_array('deactivated_at', $cols)) { $base['deactivated_at'] = now(); }
+            if (in_array('deactivation_reason', $cols)) { $base['deactivation_reason'] = $reason; }
+            if (in_array('created_at', $cols) && in_array('updated_at', $cols)) {
+                $base['updated_at'] = now();
+                if (!DB::table('worker_account_status')->where('worker_id', $workerId)->exists()) {
+                    $base['created_at'] = now();
+                }
+            }
+            if (DB::table('worker_account_status')->where('worker_id', $workerId)->exists()) {
+                DB::table('worker_account_status')->where('worker_id', $workerId)->update($base);
+            } else {
+                // Ensure primary key id is provided if table requires it
+                if (in_array('id', $cols)) { $base['id'] = (string) Str::uuid(); }
+                DB::table('worker_account_status')->insert($base);
+            }
+
+            // Notify worker
+            try {
+                Notification::create([
+                    'id' => (string) Str::uuid(),
+                    'user_id' => $workerId,
+                    'type' => 'account_deactivated',
+                    'title' => 'Account Deactivated',
+                    'message' => 'Your account has been deactivated by admin.' . ($reason ? ' Reason: ' . $reason : ''),
+                    'data' => json_encode(['worker_id' => $workerId]),
+                    'is_read' => false,
+                ]);
+            } catch (\Throwable $e) {}
+
             return response()->json(['success' => true, 'message' => 'Worker account deactivated']);
         } catch (\Throwable $e) {
             \Log::error('deactivateWorkerAccount error: ' . $e->getMessage());
@@ -424,6 +656,55 @@ class AdminController extends Controller
             $worker = WorkerProfile::findOrFail($workerId);
             $worker->is_available = true;
             $worker->save();
+
+            // Upsert into worker_account_status: set active=true and reactivated_at using existing columns
+            $cols = Schema::getColumnListing('worker_account_status');
+            $base = ['worker_id' => $workerId, 'is_active' => true];
+            if (in_array('reactivated_at', $cols)) { $base['reactivated_at'] = now(); }
+            if (in_array('updated_at', $cols)) { $base['updated_at'] = now(); }
+            if (in_array('created_at', $cols) && !DB::table('worker_account_status')->where('worker_id', $workerId)->exists()) {
+                $base['created_at'] = now();
+            }
+            if (DB::table('worker_account_status')->where('worker_id', $workerId)->exists()) {
+                DB::table('worker_account_status')->where('worker_id', $workerId)->update($base);
+            } else {
+                if (in_array('id', $cols)) { $base['id'] = (string) Str::uuid(); }
+                DB::table('worker_account_status')->insert($base);
+            }
+
+            // Notify worker
+            try {
+                Notification::create([
+                    'id' => (string) Str::uuid(),
+                    'user_id' => $workerId,
+                    'type' => 'account_reactivated',
+                    'title' => 'Account Reactivated',
+                    'message' => 'Your account has been reactivated by admin.',
+                    'data' => json_encode(['worker_id' => $workerId]),
+                    'is_read' => false,
+                ]);
+            } catch (\Throwable $e) {}
+
+            // Notify admins that a worker requested/reactivated account
+            try {
+                $admins = Profile::where('user_type', 'admin')->pluck('id');
+                foreach ($admins as $adminId) {
+                    Notification::create([
+                        'id' => (string) Str::uuid(),
+                        'user_id' => $adminId,
+                        'type' => 'worker_reactivation_request',
+                        'title' => 'Worker Reactivation',
+                        'message' => 'Worker ' . $workerId . ' requested account reactivation.',
+                        'data' => json_encode([
+                            'worker_id' => $workerId,
+                            'reason' => $reason,
+                        ]),
+                        'is_read' => false,
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                \Log::warning('Admin worker reactivation notification failed: ' . $e->getMessage());
+            }
 
             return response()->json(['success' => true, 'message' => 'Worker account reactivated']);
         } catch (\Throwable $e) {
@@ -1135,14 +1416,40 @@ class AdminController extends Controller
 
             $isVerified = (bool) ($worker->is_verified || ($worker->verification_status === 'verified'));
             $isAvailable = (bool) $worker->is_available;
-            $status = $isVerified ? 'verified' : ($worker->verification_status ?? 'pending');
+            $derivedStatus = $isVerified ? 'verified' : ($worker->verification_status ?? 'pending');
+
+            // Prefer worker_account_status table if present
+            $cols = Schema::getColumnListing('worker_account_status');
+            $row = null;
+            if (!empty($cols)) {
+                $row = \DB::table('worker_account_status')->where('worker_id', $workerId)->first();
+            }
+
+            $isActive = null;
+            $deactivatedAt = null;
+            $deactivationReason = null;
+            $reactivatedAt = null;
+
+            if ($row) {
+                $isActive = (bool) ($row->is_active ?? true);
+                $deactivatedAt = $row->deactivated_at ?? null;
+                $deactivationReason = $row->deactivation_reason ?? null;
+                $reactivatedAt = $row->reactivated_at ?? null;
+            } else {
+                // Fallback to availability + verification if no status row exists
+                $isActive = (bool) ($isAvailable && $isVerified);
+            }
 
             return response()->json([
                 'worker_id' => (string) $worker->id,
                 'is_verified' => $isVerified,
                 'is_available' => $isAvailable,
-                'status' => $status,
-                'can_message' => $isVerified && $isAvailable,
+                'is_active' => $isActive,
+                'status' => $derivedStatus,
+                'deactivated_at' => $deactivatedAt,
+                'deactivation_reason' => $deactivationReason,
+                'reactivated_at' => $reactivatedAt,
+                'can_message' => $isVerified && $isActive,
             ]);
         } catch (\Throwable $e) {
             \Log::error('getWorkerAccountStatus error: ' . $e->getMessage());

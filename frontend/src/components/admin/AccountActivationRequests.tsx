@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { supabase } from '@/integrations/supabase/client';
+import { useAdminAccountActivation } from '@/hooks/useAdminAccountActivation';
 import { toast } from 'sonner';
 import { 
   Clock, 
@@ -33,8 +33,7 @@ interface ActivationRequest {
 }
 
 export const AccountActivationRequests = () => {
-  const [requests, setRequests] = useState<ActivationRequest[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { requests, loading, fetchRequests, processRequest } = useAdminAccountActivation();
   const [selectedRequest, setSelectedRequest] = useState<ActivationRequest | null>(null);
   const [showActionDialog, setShowActionDialog] = useState(false);
   const [actionType, setActionType] = useState<'approve' | 'reject'>('approve');
@@ -46,59 +45,6 @@ export const AccountActivationRequests = () => {
     fetchRequests();
   }, []);
 
-  const fetchRequests = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch activation requests with worker details
-      const { data, error } = await supabase
-        .from('account_activation_requests')
-        .select(`
-          *,
-          worker:worker_id(
-            first_name,
-            last_name
-          )
-        `)
-        .order('requested_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Transform data to include worker names and fetch additional details
-      const transformedRequests = await Promise.all(
-        (data || []).map(async (request) => {
-          // Get worker profile details
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('first_name, last_name')
-            .eq('id', request.worker_id)
-            .single();
-
-          // Get deactivation reason
-          const { data: statusData } = await supabase
-            .from('worker_account_status')
-            .select('deactivation_reason')
-            .eq('worker_id', request.worker_id)
-            .single();
-
-          return {
-            ...request,
-            worker_name: profileData ? `${profileData.first_name} ${profileData.last_name}` : 'Unknown Worker',
-            worker_email: 'N/A', // Email not available in profiles table
-            deactivation_reason: statusData?.deactivation_reason || 'No reason provided'
-          };
-        })
-      );
-
-      setRequests(transformedRequests);
-    } catch (error) {
-      console.error('Error fetching requests:', error);
-      toast.error('Failed to fetch activation requests');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleAction = async () => {
     if (!selectedRequest || !adminNotes.trim()) {
       toast.error('Please provide admin notes for the action');
@@ -107,74 +53,20 @@ export const AccountActivationRequests = () => {
 
     setProcessing(true);
     try {
-      // Get current admin user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error('Admin authentication required');
-        return;
+      const ok = await processRequest(
+        selectedRequest.id,
+        actionType === 'approve' ? 'approved' : 'rejected',
+        adminNotes
+      );
+      if (ok) {
+        toast.success(
+          actionType === 'approve'
+            ? 'Request approved and worker account reactivated'
+            : 'Request rejected and worker notified'
+        );
+        setAdminNotes('');
+        setShowActionDialog(false);
       }
-
-      // Update the request status
-      const { error: updateError } = await supabase
-        .from('account_activation_requests')
-        .update({
-          status: actionType === 'approve' ? 'approved' : 'rejected',
-          admin_notes: adminNotes,
-          processed_at: new Date().toISOString(),
-          processed_by: user.id
-        })
-        .eq('id', selectedRequest.id);
-
-      if (updateError) throw updateError;
-
-      // If approved, reactivate the worker account
-      if (actionType === 'approve') {
-        const { error: reactivateError } = await supabase.rpc('admin_manual_reactivate_worker', {
-          worker_id_param: selectedRequest.worker_id,
-          admin_id_param: user.id,
-          reactivation_reason_param: `Account reactivated by admin approval. Admin notes: ${adminNotes}`
-        });
-
-        if (reactivateError) throw reactivateError;
-        
-        // Send notification to worker about approval
-        const { error: notificationError } = await supabase.rpc('create_notification', {
-          p_user_id: selectedRequest.worker_id,
-          p_type: 'account_activation_approved',
-          p_title: 'Account Reactivation Approved',
-          p_message: `Your account reactivation request has been approved! Admin notes: ${adminNotes}`,
-          p_related_id: selectedRequest.id,
-          p_related_type: 'account_activation_request'
-        });
-
-        if (notificationError) {
-          console.error('Error creating notification:', notificationError);
-          // Continue even if notification fails
-        }
-        
-        toast.success('Request approved and worker account reactivated');
-      } else {
-        // If rejected, send notification to worker
-        const { error: notificationError } = await supabase.rpc('create_notification', {
-          p_user_id: selectedRequest.worker_id,
-          p_type: 'account_activation_rejected',
-          p_title: 'Account Reactivation Request Rejected',
-          p_message: `Your account reactivation request has been rejected. Admin notes: ${adminNotes}`,
-          p_related_id: selectedRequest.id,
-          p_related_type: 'account_activation_request'
-        });
-
-        if (notificationError) {
-          console.error('Error creating notification:', notificationError);
-          // Continue even if notification fails
-        }
-
-        toast.success('Request rejected and worker notified');
-      }
-
-      setAdminNotes('');
-      setShowActionDialog(false);
-      fetchRequests(); // Refresh the list
     } catch (error) {
       console.error('Error processing action:', error);
       toast.error('Failed to process action');
@@ -345,8 +237,8 @@ export const AccountActivationRequests = () => {
                    <Users className="h-5 w-5" />
                  </div>
                  <div>
-                   <h3 className="font-semibold">{request.worker_name}</h3>
-                   <p className="text-sm text-muted-foreground">{request.worker_email}</p>
+                   <h3 className="font-semibold">Worker ID: {request.worker_id}</h3>
+                   <p className="text-sm text-muted-foreground">Request ID: {request.id}</p>
                  </div>
                </div>
                <div className="flex items-center space-x-2">
@@ -357,7 +249,7 @@ export const AccountActivationRequests = () => {
                        variant="outline"
                        size="sm"
                        onClick={() => {
-                         setSelectedRequest(request);
+                         setSelectedRequest(request as any);
                          setActionType('approve');
                          setShowActionDialog(true);
                        }}
@@ -370,7 +262,7 @@ export const AccountActivationRequests = () => {
                        variant="outline"
                        size="sm"
                        onClick={() => {
-                         setSelectedRequest(request);
+                         setSelectedRequest(request as any);
                          setActionType('reject');
                          setShowActionDialog(false);
                          setShowActionDialog(true);
@@ -391,12 +283,8 @@ export const AccountActivationRequests = () => {
                  <p className="text-sm mt-1">{request.request_reason}</p>
                </div>
                <div>
-                 <Label className="text-sm font-medium">Deactivation Reason</Label>
-                 <p className="text-sm mt-1">{request.deactivation_reason}</p>
-               </div>
-               <div>
                  <Label className="text-sm font-medium">Requested On</Label>
-                 <p className="text-sm mt-1">{new Date(request.requested_at).toLocaleDateString()}</p>
+                 <p className="text-sm mt-1">{request.requested_at ? new Date(request.requested_at).toLocaleDateString() : (request.created_at ? new Date(request.created_at).toLocaleDateString() : '-')}</p>
                </div>
                <div>
                  <Label className="text-sm font-medium">Status</Label>

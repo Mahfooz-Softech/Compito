@@ -134,18 +134,25 @@ This is for your {$serviceRequest->service->title} request. Would you like to ac
                 'is_read' => false,
             ]);
 
-            // Create notification for customer
+            // Create notification for customer (include worker name and service title)
+            $workerName = $serviceRequest->worker && $serviceRequest->worker->profile
+                ? trim(($serviceRequest->worker->profile->first_name ?? '') . ' ' . ($serviceRequest->worker->profile->last_name ?? ''))
+                : 'Worker';
+            $serviceTitle = $serviceRequest->service ? $serviceRequest->service->title : 'your request';
+
             Notification::create([
                 'id' => (string) Str::uuid(),
                 'user_id' => $serviceRequest->customer_id,
                 'type' => 'offer_received',
-                'title' => 'New Offer Received',
-                'message' => "You have received a new offer for your service request.",
-                'data' => json_encode([
+                'title' => 'Offer from ' . $workerName,
+                'message' => $workerName . ' sent you an offer for ' . $serviceTitle . '.',
+                'data' => [
                     'service_request_id' => $serviceRequest->id,
                     'offer_id' => $offer->id,
-                    'worker_id' => $user->id
-                ]),
+                    'worker_id' => $user->id,
+                    'service_title' => $serviceTitle,
+                    'worker_name' => $workerName,
+                ],
                 'is_read' => false,
             ]);
 

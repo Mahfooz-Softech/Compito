@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { apiClient } from '@/lib/apiClient';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -51,12 +50,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ userType, isCollapsed = false 
     pendingOffers: 0,
     unreadNotifications: 0
   });
+  const [isWorkerDeactivated, setIsWorkerDeactivated] = useState(false);
   
   useEffect(() => {
     if (user) {
       fetchDynamicData();
     }
   }, [user]);
+
+  // Check worker account status to disable navigation if deactivated
+  useEffect(() => {
+    const checkWorkerStatus = async () => {
+      if (userType !== 'worker' || !user) return;
+      try {
+        const { data, error } = await apiClient.get(`/worker-account-status/${user.id}`);
+        if (!error) setIsWorkerDeactivated(!(data?.is_active ?? true));
+      } catch {}
+    };
+    checkWorkerStatus();
+  }, [userType, user?.id]);
 
   // Update notification count when it changes
   useEffect(() => {
@@ -75,57 +87,57 @@ export const Sidebar: React.FC<SidebarProps> = ({ userType, isCollapsed = false 
     if (!user) return;
 
     try {
-      // Fetch unread messages
-      const { data: unreadMessages } = await supabase
-        .from('messages')
-        .select('id')
-        .eq('receiver_id', user.id)
-        .eq('is_read', false);
+      // Unread messages
+      let unreadMessagesCount = 0;
+      try {
+        const { data, error } = await apiClient.get('/messages/unread-count');
+        if (!error) unreadMessagesCount = Number(data) || 0;
+      } catch {}
 
-      // Fetch active bookings based on user type
-      let activeBookingsQuery = supabase
-        .from('bookings')
-        .select('id');
+      // Active bookings based on user type
+      let activeBookingsCount = 0;
+      const activeStatusesCustomer = ['pending', 'pending_payment', 'confirmed', 'worker_completed'];
+      const activeStatusesWorker = ['confirmed', 'in_progress', 'worker_completed'];
 
       if (userType === 'customer') {
-        activeBookingsQuery = activeBookingsQuery
-          .eq('customer_id', user.id)
-          .in('status', ['pending_payment', 'confirmed', 'in_progress', 'worker_completed']);
+        try {
+          const { data, error } = await apiClient.get('/customer/bookings');
+          if (!error && Array.isArray(data?.bookings)) {
+            activeBookingsCount = data.bookings.filter((b: any) => activeStatusesCustomer.includes(b.status)).length;
+          }
+        } catch {}
       } else if (userType === 'worker') {
-        activeBookingsQuery = activeBookingsQuery
-          .eq('worker_id', user.id)
-          .in('status', ['confirmed', 'in_progress']);
+        try {
+          const { data, error } = await apiClient.get('/worker/bookings');
+          if (!error && Array.isArray(data?.bookings)) {
+            activeBookingsCount = data.bookings.filter((b: any) => activeStatusesWorker.includes(b.status)).length;
+          }
+        } catch {}
       }
-
-      const { data: activeBookings } = await activeBookingsQuery;
 
       // Fetch pending service requests for workers
       let pendingRequests = 0;
       if (userType === 'worker') {
-        const { data: requests } = await supabase
-          .from('service_requests')
-          .select('id')
-          .eq('worker_id', user.id)
-          .eq('status', 'pending');
-        pendingRequests = requests?.length || 0;
+        try {
+          const { data, error } = await apiClient.get('/service-requests/worker');
+          if (!error && Array.isArray(data?.requests)) {
+            pendingRequests = data.requests.filter((r: any) => r.status === 'pending').length;
+          }
+        } catch {}
       }
 
       // Fetch pending offers based on user type
       let pendingOffers = 0;
       if (userType === 'worker') {
-        const { data: offers } = await supabase
-          .from('offers')
-          .select('id')
-          .eq('worker_id', user.id)
-          .eq('status', 'pending');
-        pendingOffers = offers?.length || 0;
+        // Optional: implement worker offers listing endpoint; default to 0 for now
+        pendingOffers = 0;
       } else if (userType === 'customer') {
-        const { data: offers } = await supabase
-          .from('offers')
-          .select('id')
-          .eq('customer_id', user.id)
-          .eq('status', 'pending');
-        pendingOffers = offers?.length || 0;
+        try {
+          const { data, error } = await apiClient.get('/customer/offers');
+          if (!error && Array.isArray(data?.offers)) {
+            pendingOffers = data.offers.filter((o: any) => o.status === 'pending').length;
+          }
+        } catch {}
       }
 
       // Fetch pending activation requests for admins
@@ -141,8 +153,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ userType, isCollapsed = false 
       }
 
       const newDynamicData = {
-        unreadMessages: unreadMessages?.length || 0,
-        activeBookings: activeBookings?.length || 0,
+        unreadMessages: unreadMessagesCount,
+        activeBookings: activeBookingsCount,
         pendingRequests,
         pendingOffers,
         unreadNotifications: unreadCount
@@ -213,6 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userType, isCollapsed = false 
   };
 
   const handleNavigation = (href: string) => {
+    if (userType === 'worker' && isWorkerDeactivated && href !== '/worker') return;
     navigate(href);
   };
 

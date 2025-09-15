@@ -31,6 +31,12 @@ class Service extends Model
     {
         return $this->belongsTo(WorkerProfile::class, 'worker_id');
     }
+
+    // Direct relation to profiles table using worker_id → profiles.id
+    public function profile()
+    {
+        return $this->belongsTo(Profile::class, 'worker_id', 'id');
+    }
     
     public function category()
     {

@@ -45,13 +45,17 @@ class PublicController extends Controller
                 ->limit($limit)
                 ->get();
 
-            // Aggregate average rating per service from reviews
+            // Aggregate average rating per service from reviews (guard schema differences)
             $serviceIds = $services->pluck('id')->unique()->values();
-            $serviceRatings = Review::select('service_id', DB::raw('AVG(rating) as avg_rating'))
-                ->whereIn('service_id', $serviceIds)
-                ->groupBy('service_id')
-                ->get()
-                ->keyBy('service_id');
+            try {
+                $serviceRatings = Review::select('service_id', DB::raw('AVG(rating) as avg_rating'))
+                    ->whereIn('service_id', $serviceIds)
+                    ->groupBy('service_id')
+                    ->get()
+                    ->keyBy('service_id');
+            } catch (\Throwable $e) {
+                $serviceRatings = collect();
+            }
 
             // Pull total reviews and fallback rating from worker_profiles, and location from profiles via relation
             $workerIds = $services->pluck('worker_id')->filter()->unique()->values();

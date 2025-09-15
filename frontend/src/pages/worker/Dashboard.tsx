@@ -11,7 +11,6 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useWorkerData } from '@/hooks/useWorkerData';
 import { useWeeklyEarnings } from '@/hooks/useWeeklyEarnings';
-
 import { WorkerBookings } from '@/components/worker/WorkerBookings';
 import { WorkerReviews } from '@/components/worker/WorkerReviews';
 import { ServiceRequestNotifications } from '@/components/worker/ServiceRequestNotifications';
@@ -25,7 +24,6 @@ import { useSearchParams } from 'react-router-dom';
 import { CircularProgress } from '@/components/ui/circular-progress';
 import { useAuth } from '@/contexts/AuthContext';
 
-import { supabase } from '@/integrations/supabase/client';
 import { 
   DollarSign, 
   Calendar, 

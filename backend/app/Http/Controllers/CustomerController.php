@@ -33,8 +33,8 @@ class CustomerController extends Controller
                 return response()->json(['error' => 'Access denied'], 403);
             }
 
-            // Fetch active services with relations
-            $services = Service::with(['category', 'worker', 'worker.profile'])
+            // Fetch active services with relations (include direct profile for location)
+            $services = Service::with(['category', 'worker', 'worker.profile', 'profile'])
                 ->where('is_active', true)
                 ->orderBy('created_at', 'desc')
                 ->get();
@@ -42,7 +42,8 @@ class CustomerController extends Controller
             // Transform into the shape Browse.tsx expects
             $allServices = $services->map(function($service) {
                 $workerProfile = $service->worker; // WorkerProfile model
-                $worker = $workerProfile ? $workerProfile->profile : null; // Profile relation
+                // Prefer direct service->profile, fallback to worker->profile
+                $worker = $service->profile ?: ($workerProfile ? $workerProfile->profile : null);
                 $category = $service->category;
 
                 return [
@@ -56,7 +57,9 @@ class CustomerController extends Controller
                     'price_max' => (float) ($service->price_max ?? 0),
                     'duration_hours' => (float) ($service->duration_hours ?? 1),
                     'online_available' => (bool) ($workerProfile->online_services ?? false),
-                    'worker_location' => $worker ? ($worker->location ?? '') : '',
+                    'worker_location' => ($worker && isset($worker->location) && trim((string)$worker->location) !== '')
+                        ? trim((string)$worker->location)
+                        : null,
                     'worker_id' => $workerProfile ? $workerProfile->id : null,
                 ];
             })->values();
@@ -139,6 +142,25 @@ class CustomerController extends Controller
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            // Notify worker about new service request
+            try {
+                \App\Models\Notification::create([
+                    'id' => (string) Str::uuid(),
+                    'user_id' => $validated['worker_id'],
+                    'type' => 'service_request_received',
+                    'title' => 'New Service Request',
+                    'message' => 'You received a new service request from a customer.',
+                    'data' => json_encode([
+                        'service_request_id' => $serviceRequestId,
+                        'service_id' => $validated['service_id'],
+                        'customer_id' => $user->id,
+                    ]),
+                    'is_read' => false,
+                ]);
+            } catch (\Throwable $e) {
+                \Log::warning('Failed to create worker service request notification: '.$e->getMessage());
+            }
 
             // Note: We cannot create an initial message without a valid booking_id due to FK/NOT NULL.
             // Frontend should create a message later once a booking is created.

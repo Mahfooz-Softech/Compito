@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, UserX, RefreshCw, Send } from 'lucide-react';
-import { apiClient } from '@/lib/apiClient';
+import apiClient from '@/lib/apiClient';
 import { toast } from 'sonner';
 
 interface AccountStatusBannerProps {
@@ -83,7 +83,6 @@ export const AccountStatusBanner: React.FC<AccountStatusBannerProps> = ({ worker
       const response = await apiClient.post('/account-activation-requests', {
         worker_id: workerId,
         request_reason: requestReason,
-        status: 'pending'
       });
 
       if (response.error) {
