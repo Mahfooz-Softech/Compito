@@ -1202,7 +1202,7 @@ class AdminController extends Controller
     }
 
     /**
-     * Get worker payment summary
+     * Get worker payment summary aggregated strictly from payments table
      */
     public function getWorkerPaymentSummary(Request $request)
     {
@@ -1211,198 +1211,177 @@ class AdminController extends Controller
             $pageSize = (int) $request->get('pageSize', 10);
             $search = $request->get('search', '');
 
-            // Get all payments with worker and customer data
-            $paymentsQuery = Booking::with([
-                'worker.profile:id,first_name,last_name',
-                'worker.category:id,name',
-                'customer:id,first_name,last_name'
-            ])->whereNotNull('worker_id');
+            $baseQuery = Payment::query()
+                ->with(['worker.profile:id,first_name,last_name', 'worker.category:id,name'])
+                ->whereNotNull('worker_id');
 
-            // Apply search filter
             if (!empty($search)) {
-                $paymentsQuery->whereHas('worker.profile', function ($q) use ($search) {
+                $baseQuery->whereHas('worker.profile', function ($q) use ($search) {
                     $q->whereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$search}%"]);
                 });
             }
 
-            $payments = $paymentsQuery->get();
+            $payments = $baseQuery->get();
 
-            // Group payments by worker
             $workerMap = [];
-            $workerCustomersMap = [];
+            $workerCustomerSet = [];
+            $workerBookingSet = [];
 
-            foreach ($payments as $payment) {
-                $workerId = $payment->worker_id;
-                $customerId = $payment->customer_id;
-                $worker = $payment->worker;
-                $profile = $worker ? $worker->profile : null;
-                $category = $worker ? $worker->category : null;
-
+            foreach ($payments as $p) {
+                $workerId = (string) $p->worker_id;
+                $profile = $p->worker ? $p->worker->profile : null;
+                $category = $p->worker ? $p->worker->category : null;
                 if (!isset($workerMap[$workerId])) {
                     $workerMap[$workerId] = [
-                        'worker_id' => (string) $workerId,
+                        'worker_id' => $workerId,
                         'worker_name' => $profile ? trim(($profile->first_name ?? '') . ' ' . ($profile->last_name ?? '')) : 'Unknown Worker',
                         'category' => $category ? $category->name : 'Uncategorized',
-                        'total_services' => 0,
+                        'total_services' => 0, // deprecated in UI
+                        'bookings' => 0,
                         'total_customers' => 0,
-                        'total_amount' => 0,
-                        'total_commission' => 0,
-                        'required_payout' => 0,
-                        'paid_amount' => 0
+                        'total_amount' => 0.0,
+                        'total_commission' => 0.0,
+                        'required_payout' => 0.0,
+                        'paid_amount' => 0.0,
                     ];
-                    $workerCustomersMap[$workerId] = [];
+                    $workerCustomerSet[$workerId] = [];
+                    $workerBookingSet[$workerId] = [];
                 }
 
-                // Track unique customers
-                if ($customerId && !in_array($customerId, $workerCustomersMap[$workerId])) {
-                    $workerCustomersMap[$workerId][] = $customerId;
+                // Unique sets
+                if (!empty($p->customer_id) && !in_array((string)$p->customer_id, $workerCustomerSet[$workerId], true)) {
+                    $workerCustomerSet[$workerId][] = (string)$p->customer_id;
+                }
+                if (!empty($p->booking_id) && !in_array((string)$p->booking_id, $workerBookingSet[$workerId], true)) {
+                    $workerBookingSet[$workerId][] = (string)$p->booking_id;
                 }
 
-                // Update totals
-                $workerMap[$workerId]['total_services']++;
-                $workerMap[$workerId]['total_amount'] += (float) $payment->total_amount;
-                $workerMap[$workerId]['total_commission'] += (float) $payment->commission_amount;
-                $workerMap[$workerId]['required_payout'] += (float) $payment->worker_payout;
+                // Totals
+                $workerMap[$workerId]['total_services']++; // kept for compatibility
+                $workerMap[$workerId]['total_amount'] += (float) ($p->total_amount ?? 0);
+                $workerMap[$workerId]['total_commission'] += (float) ($p->commission_amount ?? 0);
+                $workerMap[$workerId]['required_payout'] += (float) ($p->worker_payout ?? 0);
+                if ((bool) ($p->worker_paid ?? false)) {
+                    $workerMap[$workerId]['paid_amount'] += (float) ($p->worker_payout ?? 0);
+                }
             }
 
-            // Update customer counts
-            foreach ($workerCustomersMap as $workerId => $customers) {
-                $workerMap[$workerId]['total_customers'] = count($customers);
+            // Finalize unique counts
+            foreach ($workerMap as $wid => &$summary) {
+                $summary['total_customers'] = isset($workerCustomerSet[$wid]) ? count($workerCustomerSet[$wid]) : 0;
+                $summary['bookings'] = isset($workerBookingSet[$wid]) ? count($workerBookingSet[$wid]) : 0;
             }
+            unset($summary);
 
-            // Convert to array and apply pagination
             $allSummaries = array_values($workerMap);
+            usort($allSummaries, function ($a, $b) { return strcmp($a['worker_name'], $b['worker_name']); });
+
+            foreach ($allSummaries as &$summary) {
+                $summary['total_amount'] = round((float)$summary['total_amount'], 2);
+                $summary['total_commission'] = round((float)$summary['total_commission'], 2);
+                $summary['required_payout'] = round((float)$summary['required_payout'], 2);
+                $summary['paid_amount'] = round((float)$summary['paid_amount'], 2);
+            }
+            unset($summary);
+
             $totalCount = count($allSummaries);
-            
-            $offset = ($page - 1) * $pageSize;
-            $paginatedSummaries = array_slice($allSummaries, $offset, $pageSize);
+            $offset = max(0, ($page - 1) * $pageSize);
+            $paginatedSummaries = $pageSize > 0 ? array_slice($allSummaries, $offset, $pageSize) : $allSummaries;
 
             return response()->json([
                 'workerSummaries' => $paginatedSummaries,
                 'totalCount' => $totalCount,
                 'page' => $page,
                 'pageSize' => $pageSize,
-                'totalPages' => $pageSize > 0 ? (int) ceil($totalCount / $pageSize) : 0
+                'totalPages' => $pageSize > 0 ? (int) ceil($totalCount / $pageSize) : 1,
             ]);
-
         } catch (\Throwable $e) {
             \Log::error('getWorkerPaymentSummary error: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to fetch worker payment summary'], 500);
         }
     }
 
+    /**
+     * Admin payments: paginate raw payments with filters; include totals for the current page and total count
+     */
     public function getAdminPayments(Request $request)
     {
         try {
-            $page = $request->get('page', 1);
-            $perPage = $request->get('per_page', 10);
+            $page = (int) ($request->get('page') ?? $request->get('pageNumber') ?? 1);
+            $perPage = (int) ($request->get('per_page') ?? $request->get('pageSize') ?? 10);
             $status = $request->get('status', 'all');
-            $period = $request->get('period', 'all');
             $workerId = $request->get('worker_id');
             $workerPaid = $request->get('worker_paid');
             $search = $request->get('search');
 
-            $query = Booking::with(['worker.profile', 'worker.category', 'customer', 'service'])
-                ->where('status', 'completed');
+            $query = Payment::with(['booking.service', 'customer', 'worker.profile'])
+                ->orderBy('created_at', 'desc');
 
-            // Apply worker filter
-            if ($workerId) {
-                $query->where('worker_id', $workerId);
+            if ($workerId) { $query->where('worker_id', $workerId); }
+            if ($status && $status !== 'all') { $query->where('payment_status', $status); }
+            if ($workerPaid !== null && $workerPaid !== 'all' && $workerPaid !== '') {
+                if ($workerPaid === 'true' || $workerPaid === true || $workerPaid === 1 || $workerPaid === '1') {
+                    $query->where('worker_paid', true);
+                } else if ($workerPaid === 'false' || $workerPaid === false || $workerPaid === 0 || $workerPaid === '0') {
+                    $query->where('worker_paid', false);
+                }
             }
-
-            // Apply status filter
-            if ($status && $status !== 'all') {
-                $query->where('payment_status', $status);
-            }
-
-            // Apply worker paid filter
-            if ($workerPaid !== null && $workerPaid !== 'undefined') {
-                $query->where('worker_paid', (bool) $workerPaid);
-            }
-
-            // Apply search filter
-            if ($search && $search !== 'undefined') {
+            if (!empty($search)) {
                 $query->where(function($q) use ($search) {
-                    $q->where('transaction_id', 'like', "%{$search}%")
-                      ->orWhereHas('customer', function($customerQuery) use ($search) {
-                          $customerQuery->where('first_name', 'like', "%{$search}%")
-                                       ->orWhere('last_name', 'like', "%{$search}%");
-                      })
-                      ->orWhereHas('worker.profile', function($workerQuery) use ($search) {
-                          $workerQuery->where('first_name', 'like', "%{$search}%")
-                                     ->orWhere('last_name', 'like', "%{$search}%");
-                      });
+                    $q->whereHas('customer', function($q2) use ($search) {
+                        $q2->whereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$search}%"]);
+                    })->orWhereHas('worker.profile', function($q3) use ($search) {
+                        $q3->whereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$search}%"]);
+                    })->orWhere('transaction_id', 'like', "%{$search}%");
                 });
             }
 
-            // Apply period filter
-            if ($period !== 'all') {
-                $now = now();
-                switch ($period) {
-                    case 'today':
-                        $query->whereDate('created_at', $now->toDateString());
-                        break;
-                    case 'week':
-                        $query->whereBetween('created_at', [$now->startOfWeek(), $now->endOfWeek()]);
-                        break;
-                    case 'month':
-                        $query->whereMonth('created_at', $now->month)
-                              ->whereYear('created_at', $now->year);
-                        break;
-                    case 'year':
-                        $query->whereYear('created_at', $now->year);
-                        break;
-                }
+            $totalCount = (clone $query)->count();
+            if ($perPage > 0) {
+                $query->skip(max(0, ($page - 1) * $perPage))->take($perPage);
             }
+            $rows = $query->get();
 
-            // Get total count before pagination
-            $totalCount = $query->count();
-
-            // Apply pagination
-            $bookings = $query->orderBy('created_at', 'desc')
-                ->skip(($page - 1) * $perPage)
-                ->take($perPage)
-                ->get();
-
-            // Transform the data
-            $payments = $bookings->map(function ($booking) {
-                $totalAmount = $booking->total_amount ?? 0;
-                $commissionRate = 0.15; // 15% commission
-                $commissionAmount = $totalAmount * $commissionRate;
-                $workerPayout = $totalAmount - $commissionAmount;
-
+            $payments = $rows->map(function($p) {
                 return [
-                    'id' => $booking->id,
-                    'transactionId' => $booking->transaction_id ?? "TXN-" . substr($booking->id, 0, 8),
-                    'customer' => $booking->customer ? 
-                        $booking->customer->first_name . ' ' . $booking->customer->last_name : 
-                        'Unknown Customer',
-                    'worker' => $booking->worker && $booking->worker->profile ? 
-                        $booking->worker->profile->first_name . ' ' . $booking->worker->profile->last_name : 
-                        'Unknown Worker',
-                    'serviceTitle' => $booking->service ? $booking->service->title : 'Unknown Service',
-                    'totalAmount' => $totalAmount,
-                    'commissionAmount' => $commissionAmount,
-                    'commissionRate' => $commissionRate,
-                    'workerPayout' => $workerPayout,
-                    'status' => $booking->payment_status ?? 'pending',
-                    'workerPaid' => $booking->worker_paid ?? false,
-                    'created_at' => $booking->created_at,
-                    'updated_at' => $booking->updated_at,
+                    'id' => (string) $p->id,
+                    'booking_id' => (string) $p->booking_id,
+                    'customer_id' => (string) $p->customer_id,
+                    'worker_id' => (string) $p->worker_id,
+                    'total_amount' => round((float) $p->total_amount, 2),
+                    'commission_rate' => (float) $p->commission_rate,
+                    'commission_amount' => round((float) $p->commission_amount, 2),
+                    'worker_payout' => round((float) $p->worker_payout, 2),
+                    'payment_status' => $p->payment_status,
+                    'worker_paid' => (bool) $p->worker_paid,
+                    'payment_method' => $p->payment_method,
+                    'transaction_id' => $p->transaction_id,
+                    'created_at' => $p->created_at,
+                    // Joined
+                    'customer' => $p->customer ? trim(($p->customer->first_name ?? '') . ' ' . ($p->customer->last_name ?? '')) : 'Customer',
+                    'worker' => ($p->worker && $p->worker->profile) ? trim(($p->worker->profile->first_name ?? '') . ' ' . ($p->worker->profile->last_name ?? '')) : 'Worker',
+                    'serviceTitle' => ($p->booking && $p->booking->service) ? $p->booking->service->title : 'Service',
                 ];
             });
+
+            // Page totals
+            $pageTotals = [
+                'totalRevenue' => round((float) $payments->sum('total_amount'), 2),
+                'totalCommission' => round((float) $payments->sum('commission_amount'), 2),
+                'totalWorkerPayouts' => round((float) $payments->sum('worker_payout'), 2),
+            ];
 
             return response()->json([
                 'payments' => $payments,
                 'totalCount' => $totalCount,
-                'page' => (int) $page,
-                'perPage' => (int) $perPage,
-                'totalPages' => (int) ceil($totalCount / $perPage)
+                'page' => $page,
+                'per_page' => $perPage,
+                'totalPages' => $perPage > 0 ? (int) ceil($totalCount / $perPage) : 1,
+                'totals' => $pageTotals,
             ]);
-
         } catch (\Throwable $e) {
             \Log::error('getAdminPayments error: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to fetch admin payments'], 500);
+            return response()->json(['error' => 'Failed to fetch payments'], 500);
         }
     }
 

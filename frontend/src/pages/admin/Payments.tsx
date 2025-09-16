@@ -44,6 +44,10 @@ const AdminPayments = () => {
     setShowPaymentDrawer(true);
   };
 
+  const formatCurrency = (amount: number) => {
+    return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   const workerColumns = [
     { 
       key: 'worker_name', 
@@ -70,12 +74,12 @@ const AdminPayments = () => {
       )
     },
     { 
-      key: 'total_services', 
-      label: 'Services',
+      key: 'bookings', 
+      label: 'Bookings',
       render: (value: number) => (
         <div className="text-center">
-          <span className="font-medium text-lg">{value}</span>
-          <p className="text-xs text-muted-foreground">Total services</p>
+          <span className="font-medium text-lg">{Number(value || 0)}</span>
+          <p className="text-xs text-muted-foreground">Total bookings</p>
         </div>
       )
     },
@@ -84,7 +88,7 @@ const AdminPayments = () => {
       label: 'Customers',
       render: (value: number) => (
         <div className="text-center">
-          <span className="font-medium text-lg">{value}</span>
+          <span className="font-medium text-lg">{Number(value || 0)}</span>
           <p className="text-xs text-muted-foreground">Unique customers</p>
         </div>
       )
@@ -94,7 +98,7 @@ const AdminPayments = () => {
       label: 'Total',
       render: (value: number) => (
         <div>
-          <span className="font-medium text-lg">${value.toFixed(2)}</span>
+          <span className="font-medium text-lg">${formatCurrency(Number(value || 0))}</span>
           <p className="text-xs text-muted-foreground">Total amount</p>
         </div>
       )
@@ -104,7 +108,7 @@ const AdminPayments = () => {
       label: 'Commission',
       render: (value: number) => (
         <div>
-          <span className="font-medium text-primary text-lg">${value.toFixed(2)}</span>
+          <span className="font-medium text-primary text-lg">${formatCurrency(Number(value || 0))}</span>
           <p className="text-xs text-muted-foreground">Total commission</p>
         </div>
       )
@@ -114,7 +118,7 @@ const AdminPayments = () => {
       label: 'Required Payout',
       render: (value: number) => (
         <div>
-          <span className="font-medium text-warning text-lg">${value.toFixed(2)}</span>
+          <span className="font-medium text-warning text-lg">${formatCurrency(Number(value || 0))}</span>
           <p className="text-xs text-muted-foreground">Amount to pay</p>
         </div>
       )
@@ -124,17 +128,8 @@ const AdminPayments = () => {
       label: 'Paid Amount',
       render: (value: number) => (
         <div>
-          <span className="font-medium text-success text-lg">${value.toFixed(2)}</span>
+          <span className="font-medium text-success text-lg">${formatCurrency(Number(value || 0))}</span>
           <p className="text-xs text-muted-foreground">Already paid</p>
-        </div>
-      )
-    },
-    { 
-      key: 'pay', 
-      label: 'Actions',
-      render: (value: number) => (
-        <div>
-        <Button >Pay Worker</Button>
         </div>
       )
     }
@@ -199,6 +194,10 @@ const AdminPayments = () => {
     );
   }
 
+  const totalRevenue = workerSummaries.reduce((sum, w) => sum + Number(w.total_amount || 0), 0);
+  const totalCommission = workerSummaries.reduce((sum, w) => sum + Number(w.total_commission || 0), 0);
+  const pendingPayouts = workerSummaries.reduce((sum, w) => sum + Number(w.required_payout || 0), 0);
+
   return (
     <DashboardLayout userType="admin" title="Payment Management">
       <div className="space-y-6">
@@ -232,21 +231,21 @@ const AdminPayments = () => {
           
           <StatCard
             title="Total Revenue"
-            value={`$${workerSummaries.reduce((sum, w) => sum + w.total_amount, 0).toLocaleString()}`}
+            value={`$${formatCurrency(totalRevenue)}`}
             icon={DollarSign}
             className="bg-gradient-to-br from-success/5 to-success/10 border-success/20 hover:shadow-xl hover:scale-[1.02] transition-all duration-300"
           />
           
           <StatCard
             title="Commission Earned"
-            value={`$${workerSummaries.reduce((sum, w) => sum + w.total_commission, 0).toLocaleString()}`}
+            value={`$${formatCurrency(totalCommission)}`}
             icon={TrendingUp}
             className="bg-gradient-to-br from-warning/5 to-warning/10 border-warning/20 hover:shadow-xl hover:scale-[1.02] transition-all duration-300"
           />
           
           <StatCard
             title="Pending Payouts"
-            value={`$${workerSummaries.reduce((sum, w) => sum + w.required_payout, 0).toLocaleString()}`}
+            value={`$${formatCurrency(pendingPayouts)}`}
             icon={CreditCard}
             className="bg-gradient-to-br from-accent/10 to-accent/20 border-accent/30 hover:shadow-xl hover:scale-[1.02] transition-all duration-300"
           />

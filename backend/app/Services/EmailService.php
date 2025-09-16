@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Mail\WelcomeEmail;
 use App\Mail\EmailConfirmation;
+use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 
@@ -15,7 +16,14 @@ class EmailService
     public function sendWelcomeEmail($email, $userName, $userType, $dashboardUrl = null)
     {
         try {
-            Mail::to($email)->send(new WelcomeEmail($userName, $userType, $dashboardUrl));
+            Mail::to($email)->send((new WelcomeEmail($userName, $userType, $dashboardUrl))
+                ->withSymfonyMessage(function ($message) {
+                    $path = public_path('compito.png');
+                    if (file_exists($path)) {
+                        $message->embed($path, 'compito_logo');
+                    }
+                })
+            );
             
             Log::info('Welcome email sent successfully', [
                 'email' => $email,
@@ -40,7 +48,14 @@ class EmailService
     public function sendEmailConfirmation($email, $confirmationUrl)
     {
         try {
-            Mail::to($email)->send(new EmailConfirmation($confirmationUrl));
+            Mail::to($email)->send((new EmailConfirmation($confirmationUrl))
+                ->withSymfonyMessage(function ($message) {
+                    $path = public_path('compito.png');
+                    if (file_exists($path)) {
+                        $message->embed($path, 'compito_logo');
+                    }
+                })
+            );
             
             Log::info('Email confirmation sent successfully', [
                 'email' => $email
@@ -136,6 +151,7 @@ class EmailService
         }
     }
 }
+
 
 
 

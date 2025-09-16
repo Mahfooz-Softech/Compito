@@ -60,7 +60,7 @@ class PublicController extends Controller
             // Pull total reviews and fallback rating from worker_profiles, and location from profiles via relation
             $workerIds = $services->pluck('worker_id')->filter()->unique()->values();
             $workerProfiles = WorkerProfile::whereIn('id', $workerIds)
-                ->select('id', 'total_reviews', 'rating')
+                ->select('id', 'total_reviews', 'rating', 'experience_years', 'is_verified')
                 ->get()
                 ->keyBy('id');
 
@@ -78,6 +78,8 @@ class PublicController extends Controller
                 $fallbackWorkerRating = $worker ? (float) ($worker->rating ?? 0) : 0.0;
                 $finalRating = $avgRatingForService !== null ? $avgRatingForService : $fallbackWorkerRating;
                 $reviewsCount = $worker ? (int) ($worker->total_reviews ?? 0) : 0;
+                $experienceYears = $worker ? (int) ($worker->experience_years ?? 0) : 0;
+                $isVerified = $worker ? (bool) ($worker->is_verified ?? false) : false;
                 $providerName = $profile ? trim(($profile->first_name ?? '') . ' ' . ($profile->last_name ?? '')) : null;
                 return [
                     'id' => (string) $s->id,
@@ -92,6 +94,8 @@ class PublicController extends Controller
                     'provider' => $providerName,
                     'rating' => $finalRating,
                     'reviews_count' => $reviewsCount,
+                    'experience_years' => $experienceYears,
+                    'is_verified' => $isVerified,
                     'online_available' => false,
                     'duration_hours' => null,
                     'created_at' => $s->created_at,
@@ -155,7 +159,7 @@ class PublicController extends Controller
     {
         try {
             $workerProfiles = WorkerProfile::with(['profile:id,first_name,last_name'])
-                ->select('id', 'is_verified', 'is_available', 'created_at')
+                ->select('id', 'is_verified', 'is_available', 'experience_years', 'rating', 'total_reviews', 'created_at')
                 ->where('is_available', true)
                 ->get();
 

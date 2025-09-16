@@ -343,16 +343,16 @@ export const MessageCenter = () => {
   return (
     <div className="space-y-6">
       {/* Hero Header */}
-      <div className="rounded-2xl bg-white border border-border">
-        <div className="p-6">
+      <div className="rounded-2xl bg-white border border-border shadow-md">
+        <div className="p-5">
           <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <h1 className="text-2xl font-semibold text-foreground">💬 Message Center</h1>
-              <p className="text-sm text-muted-foreground">Connect with skilled workers, discuss projects, and get the best service</p>
+            <div>
+              <h1 className="text-xl font-semibold text-foreground">Message Center</h1>
+              <p className="text-sm text-muted-foreground">Chat with workers and manage your conversations</p>
             </div>
             <div className="hidden md:flex items-center space-x-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-sm text-pink-700 font-medium">Ready to Chat</span>
+              <div className="w-2.5 h-2.5 bg-green-500 rounded-full" />
+              <span className="text-xs text-muted-foreground">Online</span>
             </div>
           </div>
         </div>
@@ -360,8 +360,8 @@ export const MessageCenter = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[700px]">
         {/* Conversations List */}
-        <Card className="lg:col-span-1 bg-white border border-border shadow-sm">
-          <CardHeader className="bg-muted rounded-t-lg">
+        <Card className="lg:col-span-1 bg-white border border-border shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="bg-muted/50">
             <CardTitle className="flex items-center space-x-2">
               <MessageSquare className="h-5 w-5" />
               <span>Conversations</span>
@@ -372,14 +372,14 @@ export const MessageCenter = () => {
           </CardHeader>
           <CardContent className="p-0">
             {/* Search Bar */}
-            <div className="p-4 border-b">
+            <div className="p-3 border-b">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search conversations..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
+                  className="pl-10 h-9"
                 />
               </div>
             </div>
@@ -397,14 +397,14 @@ export const MessageCenter = () => {
                   <div
                     key={conversation.id}
                     onClick={() => selectConversation(conversation)}
-                    className={`p-4 border-b cursor-pointer transition-colors hover:bg-accent ${
-                      activeConversation?.id === conversation.id ? 'bg-accent' : ''
+                    className={`p-4 border-b cursor-pointer transition-colors hover:bg-muted/50 ${
+                      activeConversation?.id === conversation.id ? 'bg-muted' : 'bg-white'
                     }`}
                   >
                     <div className="flex items-center space-x-3">
-                      <Avatar  className="w-10 bg-white border-2 border-white h-10">
+                      <Avatar  className="w-10 h-10 border border-border bg-white">
                         <AvatarImage src="" />
-                        <AvatarFallback>
+                        <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                           {conversation.name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -414,7 +414,7 @@ export const MessageCenter = () => {
                             {conversation.name}
                           </h4>
                           {conversation.unread > 0 && (
-                            <Badge variant="destructive" className="rounded-full text-xs">
+                            <Badge variant="secondary" className="rounded-full text-xs">
                               {conversation.unread}
                             </Badge>
                           )}
@@ -438,14 +438,14 @@ export const MessageCenter = () => {
         </Card>
 
         {/* Chat Area */}
-        <Card className="lg:col-span-2 bg-white border border-border shadow-sm">
-          <CardHeader className="bg-muted rounded-t-lg">
+        <Card className="lg:col-span-2 bg-white border border-border shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="bg-muted/50">
             <CardTitle className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 {activeConversation && (
-                  <Avatar className="w-8 h-8">
+                  <Avatar className="w-8 h-8 border border-border bg-white">
                     <AvatarImage src="" />
-                    <AvatarFallback>
+                    <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                       {activeConversation.name.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
@@ -461,12 +461,12 @@ export const MessageCenter = () => {
             {activeConversation ? (
               <div className="space-y-4 h-[600px] flex flex-col">
                 {/* Worker Info Bar */}
-                <div className="p-4 border-b">
+                <div className="p-4 border-b bg-white/50">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
-                      <Avatar className="w-10 h-10">
+                      <Avatar className="w-10 h-10 border border-border bg-white">
                         <AvatarImage src="" />
-                        <AvatarFallback>
+                        <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                           {activeConversation.name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
@@ -483,7 +483,7 @@ export const MessageCenter = () => {
                     <div className="flex items-center space-x-2">
                       {blockedConversations.has(activeConversation.id) ? (
                         <div className="flex items-center space-x-2">
-                          <Badge variant="destructive" className="flex items-center space-x-1">
+                          <Badge variant="secondary" className="flex items-center space-x-1">
                             <ShieldOff className="h-3 w-3" />
                             <span>Blocked</span>
                           </Badge>
@@ -498,7 +498,7 @@ export const MessageCenter = () => {
                         </div>
                       ) : (
                         <div className="flex items-center space-x-2">
-                          <Badge variant="default" className="flex items-center space-x-1 bg-green-100 text-green-700 border-green-200">
+                          <Badge variant="outline" className="flex items-center space-x-1">
                             <Shield className="h-3 w-3" />
                             <span>Active</span>
                           </Badge>
@@ -517,7 +517,7 @@ export const MessageCenter = () => {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-background">
+                <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-muted/30">
                   {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center space-y-3">
@@ -538,8 +538,8 @@ export const MessageCenter = () => {
                           {isOfferMessage(message.message_text) ? (
                             <div className={`p-4 rounded-2xl border shadow-sm ${
                               message.sender_id === user.id 
-                                ? 'bg-primary text-primary-foreground' 
-                                : 'bg-muted'
+                                ? 'bg-primary/10 border-primary/20' 
+                                : 'bg-white'
                             }`}>
                               <div className="flex items-center justify-between mb-2">
                                 <Badge variant="outline">
@@ -562,10 +562,10 @@ export const MessageCenter = () => {
                           ) : (
                             <div className={`p-4 rounded-2xl border shadow-sm ${
                               message.sender_id === user.id
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-muted'
+                                ? 'bg-primary/10 border-primary/20'
+                                : 'bg-white'
                             }`}>
-                              <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{message.message_text}</p>
+                              <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-foreground">{message.message_text}</p>
                               <div className="flex items-center justify-between mt-3 text-xs opacity-80">
                                 <span className="text-xs">
                                   {new Date(message.created_at).toLocaleTimeString([], { 
@@ -573,7 +573,7 @@ export const MessageCenter = () => {
                                     minute: '2-digit' 
                                   })}
                                 </span>
-                                {message.sender_id === user.id && (<CheckCircle className="h-3 w-3" />)}
+                                {message.sender_id === user.id && (<CheckCircle className="h-3 w-3 text-muted-foreground" />)}
                               </div>
                             </div>
                           )}
@@ -599,7 +599,7 @@ export const MessageCenter = () => {
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                        className="flex-1 rounded-full"
+                        className="flex-1 rounded-full h-10"
                       />
                       <Button 
                         onClick={sendMessage}
@@ -615,12 +615,12 @@ export const MessageCenter = () => {
             ) : (
               <div className="flex items-center justify-center h-[600px]">
                 <div className="text-center space-y-4">
-                  <div className="w-20 h-20 bg-gradient-to-br from-purple-100 to-pink-100 rounded-full flex items-center justify-center mx-auto">
-                    <MessageSquare className="h-10 w-10 text-purple-600" />
+                  <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto">
+                    <MessageSquare className="h-8 w-8 text-muted-foreground" />
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-xl font-semibold text-purple-800">Select a Conversation</h3>
-                    <p className="text-purple-600">Choose a conversation from the list to start chatting</p>
+                    <h3 className="text-base font-medium text-foreground">Select a Conversation</h3>
+                    <p className="text-sm text-muted-foreground">Choose a conversation from the list to start chatting</p>
                   </div>
                 </div>
               </div>

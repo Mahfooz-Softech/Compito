@@ -98,34 +98,47 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
   const pageSize = 10;
   const { toast } = useToast();
 
+  const formatCurrency = (amount: number) => {
+    return Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   // Fetch worker profile information
   useEffect(() => {
     const fetchWorkerProfile = async () => {
       if (!workerId) return;
       
       try {
-        // Fetch profile data from Laravel API
-        const { data: profileData, error: profileError } = await apiClient.get(`/auth/profile`);
+        // Fetch worker details from Laravel API
+        const { data, error } = await apiClient.get(`/worker-data/${workerId}`);
 
-        if (profileError) {
-          console.error('Error fetching profile:', profileError);
+        if (error) {
+          console.error('Error fetching worker data:', error);
           setWorkerProfile(null);
+          setWorkerEmail('');
+          return;
+        }
+
+        if (data && data.worker) {
+          const w = data.worker;
+          setWorkerProfile({
+            id: w.id,
+            first_name: w.first_name || (workerName.split(' ')[0] || 'Unknown'),
+            last_name: w.last_name || (workerName.split(' ').slice(1).join(' ') || 'Worker'),
+            phone: w.phone || '',
+          });
+          setWorkerEmail(w.email || '');
         } else {
-          // For now, we'll use the worker name passed as prop
-          // In a real implementation, you might want to fetch specific worker profile
           setWorkerProfile({
             id: workerId,
             first_name: workerName.split(' ')[0] || 'Unknown',
             last_name: workerName.split(' ').slice(1).join(' ') || 'Worker',
-            phone: 'Not available'
+            phone: '',
           });
+          setWorkerEmail('');
         }
 
-        // Set email as not available for now
-        setWorkerEmail('Email not available');
-
       } catch (error) {
-        console.error('Error fetching worker profile:', error);
+        console.error('Error fetching worker data:', error);
         setWorkerProfile(null);
         setWorkerEmail('');
       }
@@ -144,12 +157,12 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
       try {
         setLoading(true);
 
-        // Fetch payments for specific worker from Laravel API
         const params: any = { 
-          worker_id: workerId
+          worker_id: workerId,
+          page: currentPage,
+          per_page: pageSize,
         };
         
-        // Only add parameters if they have valid values
         if (filterStatus !== 'all') {
           params.status = filterStatus;
         }
@@ -177,7 +190,6 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
           return;
         }
 
-        // Transform the data (Laravel API format)
         const paymentsArray = (paymentsData as any).payments || [];
         const transformedPayments: Payment[] = paymentsArray.map((payment: any) => ({
           ...payment,
@@ -189,21 +201,18 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
           commissionAmount: payment.commissionAmount || payment.commission_amount || 0,
           commissionRate: payment.commissionRate || payment.commission_rate || 0.15,
           workerPayout: payment.workerPayout || payment.worker_payout || 0,
-          transactionId: payment.transactionId || payment.transaction_id || `TXN-${payment.id.slice(0, 8)}`,
+          transactionId: payment.transactionId || payment.transaction_id || `${(payment.id || '')}`,
           status: payment.status || payment.payment_status || 'pending'
         }));
-
-        // Apply pagination
-        const startIndex = (currentPage - 1) * pageSize;
-        const paginatedPayments = transformedPayments.slice(startIndex, startIndex + pageSize);
         
-        setPayments(paginatedPayments);
-        setTotalCount((paymentsData as any).totalCount || transformedPayments.length);
+        // Use server pagination: set data directly and rely on totalCount from API
+        setPayments(transformedPayments);
+        setTotalCount((paymentsData as any).totalCount || (paymentsData as any).total || transformedPayments.length);
 
-        // Calculate stats
-        const totalRevenue = transformedPayments.reduce((sum, p) => sum + p.totalAmount, 0);
-        const totalCommission = transformedPayments.reduce((sum, p) => sum + p.commissionAmount, 0);
-        const totalWorkerPayouts = transformedPayments.reduce((sum, p) => sum + p.workerPayout, 0);
+        // Calculate stats (on current page data)
+        const totalRevenue = transformedPayments.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+        const totalCommission = transformedPayments.reduce((sum, p) => sum + (p.commissionAmount || 0), 0);
+        const totalWorkerPayouts = transformedPayments.reduce((sum, p) => sum + (p.workerPayout || 0), 0);
         const completedPayments = transformedPayments.filter(p => p.status === 'completed').length;
         const pendingPayments = transformedPayments.filter(p => p.status === 'pending').length;
 
@@ -236,18 +245,12 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
 
   const handleDownloadInvoice = async (payment: Payment) => {
     try {
-      // For now, just show a message that PDF generation is not available
       toast({
         title: 'PDF Generation',
         description: 'PDF generation feature is not available yet.',
         variant: 'default'
       });
       return;
-      
-      // TODO: Implement PDF generation with Laravel API
-      // const response = await apiClient.post('/generate-invoice-pdf', {
-      //   payment_id: payment.id
-      // });
     } catch (error) {
       console.error('Download invoice error:', error);
       toast({
@@ -277,7 +280,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
       label: 'Job Amount',
       render: (value: any) => (
         <div>
-          <span className="font-medium text-lg">${Number(value || 0).toFixed(2)}</span>
+          <span className="font-medium text-lg">${formatCurrency(Number(value || 0))}</span>
           <p className="text-xs text-muted-foreground">Total paid by customer</p>
         </div>
       )
@@ -287,8 +290,8 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
       label: 'Admin Commission',
       render: (value: any, row: any) => (
         <div>
-          <p className="font-medium text-primary text-lg">${Number(value || 0).toFixed(2)}</p>
-          <p className="text-xs text-muted-foreground">{Number(row.commissionRate || 0.15 * 100).toFixed(1)}% commission</p>
+          <p className="font-medium text-primary text-lg">${formatCurrency(Number(value || 0))}</p>
+          <p className="text-xs text-muted-foreground">{Number((row.commissionRate || 0.15) * 100).toFixed(1)}% commission</p>
         </div>
       )
     },
@@ -297,7 +300,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
       label: 'Worker Gets',
       render: (value: any) => (
         <div>
-          <span className="font-medium text-success text-lg">${Number(value || 0).toFixed(2)}</span>
+          <span className="font-medium text-success text-lg">${formatCurrency(Number(value || 0))}</span>
           <p className="text-xs text-muted-foreground">Worker take-home</p>
         </div>
       )
@@ -307,7 +310,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
       label: 'Transaction',
       render: (value: string, row: any) => (
         <div>
-          <p className="font-medium text-sm">{value || `TXN-${row.id.slice(0, 8)}`}</p>
+          <p className="font-medium text-sm">{value || `TXN-${(row.id || '').slice(0, 8)}`}</p>
           <p className="text-xs text-muted-foreground">{row.date}</p>
         </div>
       )
@@ -382,18 +385,16 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
                   <User className="h-4 w-4 text-primary" />
                   <span className="font-medium">{workerProfile.first_name} {workerProfile.last_name}</span>
                 </div>
-                {workerEmail && (
+                {workerEmail !== undefined && (
                   <div className="flex items-center gap-2">
                     <Hash className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{workerEmail}</span>
+                    <span className="text-sm">{workerEmail || 'Email not available'}</span>
                   </div>
                 )}
-                {workerProfile.phone && (
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{workerProfile.phone}</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm">{workerProfile.phone || 'Phone not available'}</span>
+                </div>
                 <div className="flex items-center gap-2">
                   <Hash className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm font-mono">Worker ID: {workerId}</span>
@@ -410,7 +411,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-emerald-600">
-                  ${stats.totalRevenue.toLocaleString()}
+                  ${formatCurrency(stats.totalRevenue)}
                 </div>
               </CardContent>
             </Card>
@@ -421,7 +422,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-primary">
-                  ${stats.totalCommission.toLocaleString()}
+                  ${formatCurrency(stats.totalCommission)}
                 </div>
               </CardContent>
             </Card>
@@ -432,7 +433,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-success">
-                  ${stats.totalWorkerPayouts.toLocaleString()}
+                  ${formatCurrency(stats.totalWorkerPayouts)}
                 </div>
               </CardContent>
             </Card>
@@ -451,7 +452,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
                     type="text"
                     placeholder="Search payments..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                     className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -460,7 +461,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
                   <label className="text-sm font-medium">Status</label>
                   <select
                     value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
+                    onChange={(e) => { setFilterStatus(e.target.value); setCurrentPage(1); }}
                     className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     <option value="all">All Statuses</option>
@@ -474,7 +475,7 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
                   <label className="text-sm font-medium">Worker Paid</label>
                   <select
                     value={workerPaidFilter}
-                    onChange={(e) => setWorkerPaidFilter(e.target.value)}
+                    onChange={(e) => { setWorkerPaidFilter(e.target.value); setCurrentPage(1); }}
                     className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     <option value="all">All</option>
@@ -562,15 +563,15 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span>Total Job Amount:</span>
-                    <span className="font-medium">${selectedInvoice.totalAmount.toFixed(2)}</span>
+                    <span className="font-medium">${Number(selectedInvoice.totalAmount || 0).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-primary">
-                    <span>Platform Commission ({(selectedInvoice.commissionRate * 100).toFixed(1)}%):</span>
-                    <span>-${selectedInvoice.commissionAmount.toFixed(2)}</span>
+                    <span>Platform Commission ({Number((selectedInvoice.commissionRate || 0) * 100).toFixed(1)}%):</span>
+                    <span>-${Number(selectedInvoice.commissionAmount || 0).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-success font-semibold border-t border-border/30 pt-2">
                     <span>Worker Payout:</span>
-                    <span>${selectedInvoice.workerPayout.toFixed(2)}</span>
+                    <span>${Number(selectedInvoice.workerPayout || 0).toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -586,5 +587,5 @@ export const PaymentDetailsDrawer: React.FC<PaymentDetailsDrawerProps> = ({
       </Dialog>
     </SheetContent>
   </Sheet>
-);
+  );
 };

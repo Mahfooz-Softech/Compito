@@ -239,16 +239,6 @@ const WorkerDashboard = () => {
       )
     },
     { 
-      key: 'time', 
-      label: 'Time',
-      render: (value: string) => (
-        <div className="flex items-center space-x-2">
-          <Clock className="h-4 w-4 text-indigo-500" />
-          <span className="font-medium text-gray-700">{value}</span>
-        </div>
-      )
-    },
-    { 
       key: 'amount', 
       label: 'Amount',
       render: (value: string) => (
@@ -335,7 +325,7 @@ const WorkerDashboard = () => {
       <AccountStatusBanner workerId={user?.id || ''} />
 
       {/* Profile Completion Alert */}
-      {profileCompletion < 80 ? (
+      {profileCompletion < 40 ? (
         <Card className="border-l-4 border-l-warning bg-gradient-to-r from-warning/10 to-orange-100/50 shadow-lg">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -516,7 +506,7 @@ const WorkerDashboard = () => {
         <DataTable
           title="Recent Jobs"
           columns={jobColumns}
-          data={recentJobs.map(job => ({
+          data={recentJobs.slice(0, 5).map(job => ({
             id: job.id,
             client: job.customer_name || 'Customer',
             service: job.service_title || 'Service',

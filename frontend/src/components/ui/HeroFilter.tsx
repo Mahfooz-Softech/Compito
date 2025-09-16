@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Search, MapPin, Sparkles, Wrench, Truck, Scissors, PaintBucket, Laptop, Loader2, Users, Star, Shield } from 'lucide-react';
 import { usePublicData } from '@/hooks/usePublicData';
-import { supabase } from '@/integrations/supabase/client';
+import { useWorkerLocationSearch } from '@/hooks/useWorkerLocationSearch';
 import { Badge } from '@/components/ui/badge';
 
 interface HeroFilterProps {
@@ -50,6 +50,7 @@ export const HeroFilter: React.FC<HeroFilterProps> = ({ onSearch }) => {
   const [showResults, setShowResults] = useState(false);
   const [selectedLocationCoords, setSelectedLocationCoords] = useState<{lat: number, lng: number} | null>(null);
   const locationInputRef = useRef<HTMLInputElement>(null);
+  const { searchWorkers, workers } = useWorkerLocationSearch();
 
   // Icon mapping for categories
   const getIconForCategory = (categoryName: string) => {
@@ -145,160 +146,31 @@ export const HeroFilter: React.FC<HeroFilterProps> = ({ onSearch }) => {
     setShowResults(true);
 
     try {
-      // Use the same logic as ServiceRequestFlow - search from profiles table first
-      // Convert miles to approximate degrees for bounding box filtering
-      const latDelta = 10 / 69; // 1 degree of latitude ≈ 69 miles
-      const lngDelta = 10 / 54.6; // 1 degree of longitude ≈ 54.6 miles at UK latitude
-      
-      // Create bounding box for initial filtering
-      const minLat = selectedLocationCoords.lat - latDelta;
-      const maxLat = selectedLocationCoords.lat + latDelta;
-      const minLng = selectedLocationCoords.lng - lngDelta;
-      const maxLng = selectedLocationCoords.lng + lngDelta;
-
-      // Get workers within the bounding box first (this reduces the number of distance calculations)
-      const { data: workers, error } = await supabase
-        .from('profiles')
-        .select(`
-          id,
-          first_name,
-          last_name,
-          postcode,
-          latitude,
-          longitude,
-          avatar_url,
-          user_type
-        `)
-        .eq('user_type', 'worker')
-        .not('postcode', 'is', null)
-        .gte('latitude', minLat)
-        .lte('latitude', maxLat)
-        .gte('longitude', minLng)
-        .lte('longitude', maxLng);
-
-      if (error) {
-        console.error('Error fetching workers in bounding box:', error);
-        throw error;
-      }
-
-      if (!workers || workers.length === 0) {
-        setSearchResults([]);
-        return;
-      }
-
-      // Now calculate exact distances and filter by service category
-      const workersWithDistance: Worker[] = [];
-
-      for (const worker of workers) {
-        if (!worker.latitude || !worker.longitude) {
-          continue; // Skip workers without coordinates
-        }
-
-        // Calculate exact distance
-        const distance = calculateDistance(
-          selectedLocationCoords.lat,
-          selectedLocationCoords.lng,
-          worker.latitude,
-          worker.longitude
-        );
-
-        // Only include workers within 10 miles
-        if (distance <= 10) {
-          // Check if this worker has a worker_profile
-          const { data: workerProfile, error: profileError } = await supabase
-            .from('worker_profiles')
-            .select('id, is_verified')
-            .eq('id', worker.id)
-            .maybeSingle();
-          
-          if (profileError) {
-            console.error('Error checking worker profile for', worker.id, ':', profileError);
-            continue;
-          }
-          
-          // Only include verified workers
-          if (!workerProfile || !workerProfile.is_verified) {
-            continue;
-          }
-
-          // Check if worker has services in the selected category
-          const { data: servicesData } = await supabase
-            .from('services')
-            .select(`
-              title,
-              price_min,
-              price_max,
-              category_id
-            `)
-            .eq('worker_id', worker.id);
-
-          // Check if any service matches the selected category
-          let hasMatchingService = false;
-          let matchingService = null;
-
-          if (servicesData && servicesData.length > 0) {
-            // Get categories for the services
-            const categoryIds = servicesData.map(s => s.category_id).filter(Boolean);
-            if (categoryIds.length > 0) {
-              const { data: categoriesData } = await supabase
-                .from('categories')
-                .select('id, name')
-                .in('id', categoryIds);
-
-              if (categoriesData) {
-                for (const service of servicesData) {
-                  const category = categoriesData.find(c => c.id === service.category_id);
-                  if (category && category.name.toLowerCase() === selectedCategory.toLowerCase()) {
-                    hasMatchingService = true;
-                    matchingService = service;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-
-          if (hasMatchingService && matchingService) {
-            workersWithDistance.push({
-              id: worker.id,
-              rating: 0, // Will be updated from worker_profile
-              total_reviews: 0, // Will be updated from worker_profile
-              latitude: worker.latitude,
-              longitude: worker.longitude,
-              profiles: {
-                first_name: worker.first_name,
-                last_name: worker.last_name,
-                avatar_url: worker.avatar_url
-              },
-              services: [{
-                title: matchingService.title,
-                price_min: matchingService.price_min || 0,
-                price_max: matchingService.price_max || 0,
-                categories: { name: selectedCategory }
-              }]
-            });
-          }
-        }
-      }
-
-      // Sort by distance (closest first)
-      const sortedWorkers = workersWithDistance.sort((a, b) => {
-        const distanceA = calculateDistance(
-          selectedLocationCoords.lat,
-          selectedLocationCoords.lng,
-          a.latitude,
-          a.longitude
-        );
-        const distanceB = calculateDistance(
-          selectedLocationCoords.lat,
-          selectedLocationCoords.lng,
-          b.latitude,
-          b.longitude
-        );
-        return distanceA - distanceB;
-      });
-
-      setSearchResults(sortedWorkers);
+      await searchWorkers({
+        postcode: '',
+        latitude: selectedLocationCoords.lat,
+        longitude: selectedLocationCoords.lng,
+        formattedAddress: location,
+      }, 10);
+      // Map backend results into UI format for this component
+      const mapped = (workers || []).map((w: any) => ({
+        id: w.id,
+        rating: w.rating ?? 0,
+        total_reviews: w.total_reviews ?? 0,
+        latitude: w.latitude,
+        longitude: w.longitude,
+        profiles: {
+          first_name: w.first_name ?? '',
+          last_name: w.last_name ?? '',
+        },
+        services: [{
+          title: selectedCategory,
+          price_min: w.hourly_rate ?? 0,
+          price_max: w.hourly_rate ?? 0,
+          categories: { name: selectedCategory }
+        }]
+      } as Worker));
+      setSearchResults(mapped);
       onSearch(selectedCategory, location);
     } catch (error) {
       console.error('Error searching for workers:', error);

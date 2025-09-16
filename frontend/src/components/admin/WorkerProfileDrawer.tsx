@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import apiClient from '@/lib/apiClient';
+import { apiClient } from '@/lib/apiClient';
 import { toast } from 'sonner';
 import { 
   Users, 
@@ -100,291 +100,95 @@ export const WorkerProfileDrawer: React.FC<WorkerProfileDrawerProps> = ({
   }, [isOpen, workerId]);
 
   const fetchWorkerData = async () => {
-    console.log('fetchWorkerData called with workerId:', workerId, typeof workerId);
-    if (!workerId) {
-      console.error('workerId is null or undefined in fetchWorkerData');
-      return;
-    }
-    
+    if (!workerId) return;
     setLoading(true);
     try {
-      // Use backend API for worker profile and related data
-      try {
-        const { data: workerData, error: workerError } = await apiClient.getWorkerData(String(workerId));
-        if (workerError) throw workerError;
+      // Fetch worker overview data
+      const { data: workerResp, error: workerErr } = await apiClient.get(`/worker-data/${workerId}`);
+      if (workerErr) throw workerErr;
 
-        const profileId = workerData?.id || workerData?.profile?.id || workerId;
-        const firstName = workerData?.first_name || workerData?.profile?.first_name || '';
-        const lastName = workerData?.last_name || workerData?.profile?.last_name || '';
-        const phone = workerData?.phone || workerData?.profile?.phone || '';
-        const createdAt = workerData?.created_at || workerData?.profile?.created_at || new Date().toISOString();
-        const completedJobs = workerData?.completed_jobs ?? workerData?.stats?.completed_jobs ?? 0;
-        const isActive = workerData?.is_active ?? workerData?.status !== 'deactivated';
-        const deactivatedAt = workerData?.deactivated_at ?? undefined;
-        const deactivationReason = workerData?.deactivation_reason ?? undefined;
-        const email = workerData?.email || workerData?.profile?.email || 'Email not available';
+      const w = workerResp?.worker;
+      const stats = workerResp?.stats;
+      const recentJobs = (workerResp?.recent_jobs || []) as any[];
+      const workerServices = (workerResp?.worker_services || []) as any[];
 
-        const monthsSinceCreation = Math.floor(
-          (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30)
-        );
-
+      if (w) {
+        const monthsSinceCreation = 0;
+        const completedJobs = stats?.completed_jobs ?? 0;
         let riskLevel = 'No Risk';
-        if (monthsSinceCreation >= 3 && completedJobs === 0) {
-          riskLevel = 'High Risk';
-        } else if (monthsSinceCreation >= 2 && completedJobs === 0) {
-          riskLevel = 'Medium Risk';
-        } else if (monthsSinceCreation >= 1 && completedJobs === 0) {
-          riskLevel = 'Low Risk';
-        }
+        if (completedJobs === 0) riskLevel = 'Low Risk';
 
-        const workerProfile: WorkerProfile = {
-          id: String(profileId),
-          first_name: firstName,
-          last_name: lastName,
-          email,
-          phone,
-          created_at: createdAt,
-          category_name: workerData?.category?.name || workerData?.category_name || 'Unassigned',
-          category_description: workerData?.category?.description || workerData?.category_description || 'No category assigned',
-          is_active: Boolean(isActive),
-          deactivated_at: deactivatedAt,
-          deactivation_reason: deactivationReason,
+        const wp: WorkerProfile = {
+          id: String(w.id),
+          first_name: w.first_name || '',
+          last_name: w.last_name || '',
+          email: w.email || 'Email not available',
+          phone: w.phone || '',
+          created_at: w.created_at || new Date().toISOString(),
+          category_name: stats?.category || workerResp?.worker?.category?.name || 'Unassigned',
+          category_description: '—',
+          is_active: true,
           months_since_creation: monthsSinceCreation,
           unique_customers_count: completedJobs,
           risk_level: riskLevel,
-          admin_id: String(profileId)
+          admin_id: String(w.id)
         };
-
-        setWorker(workerProfile);
-
-        const servicesData = (workerData?.services || []) as any[];
-        const servicesWithCategories = servicesData.map((service) => ({
-          ...service,
-          category_name: service.category_name || service.category?.name || 'Unassigned'
-        }));
-        setServices(servicesWithCategories);
-
-        const bookingsData = (workerData?.bookings || []) as any[];
-        const bookingsWithNames = bookingsData.map((booking) => ({
-          ...booking,
-          customer_name: booking.customer_name || booking.customer?.name || booking.customer?.full_name || 'Unknown Customer'
-        }));
-        setBookings(bookingsWithNames);
-
-        const reviewsData = (workerData?.reviews || []) as any[];
-        const reviewsWithNames = reviewsData.map((review) => ({
-          ...review,
-          reviewer_name: review.reviewer_name || review.reviewer?.name || 'Unknown Reviewer'
-        }));
-        setReviews(reviewsWithNames);
-
-        return;
-      } catch (apiError) {
-        console.warn('Backend API failed for worker profile, falling back to legacy code', apiError);
+        setWorker(wp);
+      } else {
+        setWorker(null);
       }
-      // Fetch worker profile data from worker_profiles table
-      const { data: workerData, error: workerError } = await supabase
-        .from('worker_profiles')
-        .select(`
-          id,
-          category_id,
-          completed_jobs
-        `)
-        .eq('id', workerId)
-        .single();
 
-      if (workerError) throw workerError;
-      
-      console.log('Worker profile data fetched:', workerData);
+      // Map bookings from recent_jobs
+      const mappedBookings: Booking[] = recentJobs.map((b: any) => ({
+        id: b.id,
+        service_id: b.service_id || '',
+        customer_name: b.customer_name || 'Customer',
+        status: b.status || 'pending',
+        created_at: b.created_at,
+        scheduled_date: b.scheduled_date || b.created_at,
+        total_amount: Number(b.total_amount || 0)
+      }));
+      setBookings(mappedBookings);
 
-      // Fetch profile data
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, first_name, last_name, phone, created_at, user_type')
-        .eq('id', workerId)
-        .single();
+      // Map services from worker_services
+      const mappedServices: Service[] = workerServices.map((s: any) => ({
+        id: s.id,
+        title: s.title || 'Service',
+        description: s.description || '',
+        price_min: s.price_min ?? null,
+        price_max: s.price_max ?? null,
+        duration_hours: s.duration_hours ?? null,
+        category_id: s.category_id ?? null,
+        category_name: s.category?.name || s.category_name || 'Unassigned',
+      }));
+      setServices(mappedServices);
 
-      if (profileError) throw profileError;
-      
-      console.log('Profile data fetched:', profileData);
-
-                                         // Fetch email using custom RPC function
-        let userEmail = 'Email not available';
-        try {
-          const { data, error } = await supabase.rpc('get_user_email_by_profile_id' as any, { profile_id: workerId });
-          
-          if (!error && data) {
-            userEmail = data as string;
-          }
-        } catch (err) {
-          console.error("Error fetching user email:", err);
-        }
-
-      // Fetch category data (only if category_id exists)
-      let categoryData = null;
-      if (workerData.category_id) {
-        const { data: catData, error: categoryError } = await supabase
-          .from('worker_categories')
-          .select('name, description')
-          .eq('id', workerData.category_id)
-          .single();
-
-        if (categoryError) {
-          console.warn('Could not fetch category data:', categoryError);
+      // Fetch reviews for this worker via backend
+      try {
+        const { data: reviewsResp, error: reviewsErr } = await apiClient.get(`/worker/reviews/${workerId}`);
+        if (!reviewsErr && reviewsResp && Array.isArray(reviewsResp.reviews)) {
+          const mappedReviews: Review[] = reviewsResp.reviews.map((r: any) => ({
+            id: r.id,
+            rating: r.rating,
+            comment: r.comment || '',
+            reviewer_name: r.reviewer_name || r.customer_name || 'Unknown Reviewer',
+            created_at: r.created_at,
+            review_type: r.review_type || 'customer'
+          }));
+          setReviews(mappedReviews);
         } else {
-          categoryData = catData;
+          setReviews([]);
         }
+      } catch {
+        setReviews([]);
       }
-
-      // Calculate months since creation
-      const monthsSinceCreation = Math.floor(
-        (Date.now() - new Date(profileData.created_at).getTime()) / (1000 * 60 * 60 * 24 * 30)
-      );
-
-      // Calculate risk level
-      let riskLevel = 'No Risk';
-      if (monthsSinceCreation >= 3 && workerData.completed_jobs === 0) {
-        riskLevel = 'High Risk';
-      } else if (monthsSinceCreation >= 2 && workerData.completed_jobs === 0) {
-        riskLevel = 'Medium Risk';
-      } else if (monthsSinceCreation >= 1 && workerData.completed_jobs === 0) {
-        riskLevel = 'Low Risk';
-      }
-
-             const workerProfile: WorkerProfile = {
-         id: profileData.id,
-         first_name: profileData.first_name || '',
-         last_name: profileData.last_name || '',
-         email: userEmail,
-         phone: profileData.phone || '',
-         created_at: profileData.created_at,
-         category_name: categoryData?.name || 'Unassigned',
-         category_description: categoryData?.description || 'No category assigned',
-         is_active: true, // Default to active for now
-         deactivated_at: undefined,
-         deactivation_reason: undefined,
-         months_since_creation: monthsSinceCreation,
-         unique_customers_count: workerData.completed_jobs || 0,
-         risk_level: riskLevel,
-         admin_id: profileData.id // Using the worker's profile ID as admin can see this
-       };
-
-      setWorker(workerProfile);
-
-             // Fetch services for this worker directly from services table
-       const { data: servicesData, error: servicesError } = await supabase
-         .from('services')
-         .select(`
-           id,
-           title,
-           description,
-           price_min,
-           price_max,
-           duration_hours,
-           category_id
-         `)
-         .eq('worker_id', workerId);
-
-       if (servicesError) {
-         console.warn('Could not fetch services:', servicesError);
-       } else if (servicesData) {
-         // Get category names for services
-         const categoryIds = [...new Set(servicesData.map(s => s.category_id).filter(Boolean))];
-         let categoryData = null;
-         if (categoryIds.length > 0) {
-           const { data: catData } = await supabase
-             .from('categories')
-             .select('id, name')
-             .in('id', categoryIds);
-           categoryData = catData;
-         }
-
-         const servicesWithCategories = servicesData.map(service => {
-           const category = categoryData?.find(c => c.id === service.category_id);
-           return {
-             ...service,
-             category_name: category?.name || 'Unassigned'
-           };
-         });
-                  setServices(servicesWithCategories);
-       }
-
-      // Fetch bookings for this worker directly from bookings table
-      // Since bookings are linked to services, we need to get all services first, then get bookings for those services
-      if (servicesData && servicesData.length > 0) {
-        const serviceIds = servicesData.map(s => s.id);
-        const { data: bookingsData, error: bookingsError } = await supabase
-          .from('bookings')
-          .select(`
-            id,
-            service_id,
-            customer_id,
-            status,
-            scheduled_date,
-            total_amount,
-            created_at
-          `)
-          .in('service_id', serviceIds)
-          .order('created_at', { ascending: false });
-
-        if (bookingsError) {
-          console.warn('Could not fetch bookings:', bookingsError);
-        } else if (bookingsData) {
-          // Get customer names for bookings
-          const customerIds = [...new Set(bookingsData.map(b => b.customer_id))];
-          const { data: customerData } = await supabase
-            .from('profiles')
-            .select('id, first_name, last_name')
-            .in('id', customerIds);
-
-          const bookingsWithNames = bookingsData.map(booking => {
-            const customer = customerData?.find(c => c.id === booking.customer_id);
-            return {
-              ...booking,
-              customer_name: customer ? `${customer.first_name} ${customer.last_name}` : 'Unknown Customer'
-            };
-          });
-          setBookings(bookingsWithNames);
-        }
-      }
-
-      // Fetch reviews for this worker
-      const { data: reviewsData, error: reviewsError } = await supabase
-        .from('reviews')
-        .select(`
-          id,
-          rating,
-          comment,
-          reviewer_id,
-          created_at,
-          review_type
-        `)
-        .eq('worker_id', workerId)
-        .order('created_at', { ascending: false });
-
-      if (reviewsError) {
-        console.warn('Could not fetch reviews:', reviewsError);
-      } else if (reviewsData) {
-        // Get reviewer names for reviews
-        const reviewerIds = [...new Set(reviewsData.map(r => r.reviewer_id))];
-        const { data: reviewerData } = await supabase
-          .from('profiles')
-          .select('id, first_name, last_name')
-          .in('id', reviewerIds);
-
-        const reviewsWithNames = reviewsData.map(review => {
-          const reviewer = reviewerData?.find(r => r.id === review.reviewer_id);
-          return {
-            ...review,
-            reviewer_name: reviewer ? `${reviewer.first_name} ${reviewer.last_name}` : 'Unknown Reviewer'
-          };
-        });
-        setReviews(reviewsWithNames);
-      }
-
     } catch (error) {
       console.error('Error fetching worker data:', error);
       toast.error('Failed to fetch worker profile data');
+      setWorker(null);
+      setBookings([]);
+      setServices([]);
+      setReviews([]);
     } finally {
       setLoading(false);
     }
@@ -468,30 +272,30 @@ export const WorkerProfileDrawer: React.FC<WorkerProfileDrawerProps> = ({
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 space-y-3">
-                                         <div className="grid grid-cols-2 gap-4">
-                       <div>
-                         <p className="text-sm font-medium text-muted-foreground">Full Name</p>
-                         <p className="font-semibold">{worker.first_name} {worker.last_name}</p>
-                       </div>
-                       <div>
-                         <p className="text-sm font-medium text-muted-foreground">Email</p>
-                         <p className="font-semibold">{worker.email}</p>
-                       </div>
-                       <div>
-                         <p className="text-sm font-medium text-muted-foreground">Admin ID</p>
-                         <p className="font-semibold">{worker.admin_id}</p>
-                       </div>
-                       {worker.phone && (
-                         <div>
-                           <p className="text-sm font-medium text-muted-foreground">Phone</p>
-                           <p className="font-semibold">{worker.phone}</p>
-                         </div>
-                       )}
-                       <div>
-                         <p className="text-sm font-medium text-muted-foreground">Category</p>
-                         <p className="font-semibold">{worker.category_name}</p>
-                       </div>
-                     </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Full Name</p>
+                        <p className="font-semibold">{worker.first_name} {worker.last_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Email</p>
+                        <p className="font-semibold">{worker.email}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Admin ID</p>
+                        <p className="font-semibold">{worker.admin_id}</p>
+                      </div>
+                      {worker.phone && (
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground">Phone</p>
+                          <p className="font-semibold">{worker.phone}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">Category</p>
+                        <p className="font-semibold">{worker.category_name}</p>
+                      </div>
+                    </div>
                     <div className="flex gap-2">
                       {getStatusBadge(worker.is_active)}
                       {getRiskLevelBadge(worker.risk_level)}
@@ -544,43 +348,43 @@ export const WorkerProfileDrawer: React.FC<WorkerProfileDrawerProps> = ({
                 </TabsTrigger>
               </TabsList>
 
-                                           <TabsContent value="bookings" className="space-y-4">
-                 <Card>
-                   <CardHeader>
-                     <CardTitle>Recent Bookings</CardTitle>
-                   </CardHeader>
-                   <CardContent>
-                     {bookings.length === 0 ? (
-                       <p className="text-muted-foreground text-center py-8">No bookings found</p>
-                     ) : (
-                       <div className="space-y-3">
-                         {bookings.map((booking) => (
-                           <div key={booking.id} className="p-4 border rounded-lg">
-                             <div className="flex justify-between items-start mb-2">
-                               <h4 className="font-semibold">{booking.customer_name}</h4>
-                               {getBookingStatusBadge(booking.status)}
-                             </div>
-                             <div className="grid grid-cols-3 gap-4 text-sm">
-                               <div>
-                                 <p className="text-muted-foreground">Scheduled Date</p>
-                                 <p>{new Date(booking.scheduled_date).toLocaleDateString()}</p>
-                               </div>
-                               <div>
-                                 <p className="text-muted-foreground">Total Amount</p>
-                                 <p>${booking.total_amount}</p>
-                               </div>
-                               <div>
-                                 <p className="text-muted-foreground">Created</p>
-                                 <p>{new Date(booking.created_at).toLocaleDateString()}</p>
-                               </div>
-                             </div>
-                           </div>
-                         ))}
-                       </div>
-                     )}
-                   </CardContent>
-                 </Card>
-               </TabsContent>
+              <TabsContent value="bookings" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Recent Bookings</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {bookings.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-8">No bookings found</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {bookings.map((booking) => (
+                          <div key={booking.id} className="p-4 border rounded-lg">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-semibold">{booking.customer_name}</h4>
+                              {getBookingStatusBadge(booking.status)}
+                            </div>
+                            <div className="grid grid-cols-3 gap-4 text-sm">
+                              <div>
+                                <p className="text-muted-foreground">Scheduled Date</p>
+                                <p>{new Date(booking.scheduled_date).toLocaleDateString()}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Total Amount</p>
+                                <p>${booking.total_amount}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Created</p>
+                                <p>{new Date(booking.created_at).toLocaleDateString()}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
 
               <TabsContent value="services" className="space-y-4">
                 <Card>
@@ -592,38 +396,35 @@ export const WorkerProfileDrawer: React.FC<WorkerProfileDrawerProps> = ({
                       <p className="text-muted-foreground text-center py-8">No services found</p>
                     ) : (
                       <div className="space-y-3">
-                                                 {services.map((service) => (
-                           <div key={service.id} className="p-4 border rounded-lg">
-                             <div className="flex justify-between items-start mb-2">
-                               <h4 className="font-semibold">{service.title}</h4>
-                               <Badge variant="default">
-                                 Active
-                               </Badge>
-                             </div>
-                             <p className="text-sm text-muted-foreground mb-2">{service.description}</p>
-                             <div className="grid grid-cols-3 gap-4 text-sm">
-                               <div>
-                                 <p className="text-muted-foreground">Price Range</p>
-                                 <p>
-                                   {service.price_min && service.price_max 
-                                     ? `$${service.price_min} - $${service.price_max}`
-                                     : service.price_min 
-                                       ? `$${service.price_min}+`
-                                       : 'Not specified'
-                                   }
-                                 </p>
-                               </div>
-                               <div>
-                                 <p className="text-muted-foreground">Duration</p>
-                                 <p>{service.duration_hours ? `${service.duration_hours}h` : 'Not specified'}</p>
-                               </div>
-                               <div>
-                                 <p className="text-muted-foreground">Category</p>
-                                 <p>{service.category_name}</p>
-                               </div>
-                             </div>
-                           </div>
-                         ))}
+                        {services.map((service) => (
+                          <div key={service.id} className="p-4 border rounded-lg">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="font-semibold">{service.title}</h4>
+                              <Badge variant="default">Active</Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-2">{service.description}</p>
+                            <div className="grid grid-cols-3 gap-4 text-sm">
+                              <div>
+                                <p className="text-muted-foreground">Price Range</p>
+                                <p>
+                                  {service.price_min && service.price_max 
+                                    ? `$${service.price_min} - $${service.price_max}`
+                                    : service.price_min 
+                                      ? `$${service.price_min}+`
+                                      : 'Not specified'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Duration</p>
+                                <p>{service.duration_hours ? `${service.duration_hours}h` : 'Not specified'}</p>
+                              </div>
+                              <div>
+                                <p className="text-muted-foreground">Category</p>
+                                <p>{service.category_name}</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </CardContent>
@@ -665,29 +466,6 @@ export const WorkerProfileDrawer: React.FC<WorkerProfileDrawerProps> = ({
                 </Card>
               </TabsContent>
             </Tabs>
-
-            {/* Deactivation Information (if applicable) */}
-            {!worker.is_active && worker.deactivation_reason && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-red-600">
-                    <AlertTriangle className="h-5 w-5" />
-                    Account Deactivation
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Reason:</p>
-                    <p className="text-sm text-red-700">{worker.deactivation_reason}</p>
-                    {worker.deactivated_at && (
-                      <p className="text-xs text-muted-foreground">
-                        Deactivated on: {new Date(worker.deactivated_at).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
         )}
       </SheetContent>

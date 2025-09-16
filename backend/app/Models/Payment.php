@@ -19,6 +19,7 @@ class Payment extends Model
         'commission_amount',
         'worker_payout',
         'payment_status',
+        'worker_paid',
         'payment_method',
         'transaction_id',
     ];
@@ -28,6 +29,7 @@ class Payment extends Model
         'commission_rate' => 'decimal:4',
         'commission_amount' => 'decimal:2',
         'worker_payout' => 'decimal:2',
+        'worker_paid' => 'boolean',
     ];
     
     // Relationships

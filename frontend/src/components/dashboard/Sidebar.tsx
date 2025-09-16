@@ -205,7 +205,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ userType, isCollapsed = false 
           { name: 'My Services', href: '/worker/services', icon: Briefcase },
           { name: 'Bookings', href: '/worker/bookings', icon: Calendar, badge: dynamicData.activeBookings },
           { name: 'My Offers', href: '/worker/offers', icon: Handshake, badge: dynamicData.pendingOffers },
-          { name: 'Schedule', href: '/worker/schedule', icon: Clock },
+          // { name: 'Schedule', href: '/worker/schedule', icon: Clock },
           { name: 'Earnings', href: '/worker/earnings', icon: DollarSign },
           { name: 'Reviews', href: '/worker/reviews', icon: Star },
           { name: 'Conversation', href: '/worker/messages', icon: MessageSquare, badge: dynamicData.unreadMessages },

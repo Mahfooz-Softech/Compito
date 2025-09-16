@@ -13,7 +13,8 @@
             <!-- Header -->
             <tr>
               <td style="background:#751BE9; padding:20px; text-align:center;">
-                <img src="{{ asset('lovable-uploads/8c93c5bf-e594-435e-a1e1-0f8be25f943a.png') }}" alt="Compito Logo" width="140" style="display:block; margin:0 auto;object:contain;"/>
+                <!-- <img src="cid:compito_logo" alt="Compito Logo" width="140" style="display:block; margin:0 auto; object-fit:contain;"/> -->
+                <div style="font-size:24px; font-weight:700; color:#ffffff; font-family:Arial, Helvetica, sans-serif;">Compito</div>
               </td>
             </tr>
 
@@ -75,6 +76,7 @@
     </table>
   </body>
 </html>
+
 
 
 

@@ -47,6 +47,8 @@ import { CustomerSettings } from "./pages/customer/Settings";
 import Login from "./pages/auth/Login";
 import Signup from "./pages/auth/Signup";
 import EmailConfirmation from "./pages/auth/EmailConfirmation";
+import ForgotPassword from "./pages/auth/ForgotPassword";
+import ResetPassword from "./pages/auth/ResetPassword";
 import BecomeWorker from "./pages/BecomeWorker";
 import NotFound from "./pages/NotFound";
 import Checkout from "./pages/Checkout";
@@ -78,6 +80,8 @@ const App = () => {
               <Route path="login" element={<Login />} />
               <Route path="signup" element={<Signup />} />
               <Route path="email-confirmation" element={<EmailConfirmation />} />
+              <Route path="forgot-password" element={<ForgotPassword />} />
+              <Route path="reset-password" element={<ResetPassword />} />
               <Route path="auth" element={<Signup />} />
               <Route path="checkout" element={<Checkout />} />
               <Route path="payment-success" element={<PaymentSuccess />} />

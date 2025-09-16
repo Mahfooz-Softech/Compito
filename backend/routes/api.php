@@ -13,6 +13,7 @@ use App\Http\Controllers\ServiceRequestController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\CheckoutController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ReviewController; // ADDED
 
 /*
 |--------------------------------------------------------------------------
@@ -36,6 +37,8 @@ Route::post('/debug/force-deactivate/{workerId}', [AdminController::class, 'debu
 // Authentication routes (public)
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
 
 // Contact routes (public)
 Route::get('/contact', [ContactController::class, 'index']);
@@ -85,6 +88,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/admin/workers/{workerId}/commission', [AdminController::class, 'updateWorkerCommission']);
     Route::post('/admin/workers-pagination', [AdminController::class, 'getWorkersPagination']);
     Route::delete('/admin/services/{serviceId}', [AdminController::class, 'deleteService']);
+
+    // Admin Reviews
+    Route::get('/admin/reviews', [ReviewController::class, 'adminIndex']);
+    Route::get('/admin/reviews/{id}', [ReviewController::class, 'show']);
+    Route::delete('/admin/reviews/{id}', [ReviewController::class, 'destroy']);
 
     // Worker Account Management routes
     Route::get('/admin/worker-accounts', [AdminController::class, 'getWorkerAccounts']);
@@ -142,7 +150,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/worker-unique-customers-count/{id}', [WorkerController::class, 'getWorkerUniqueCustomersCount']);
     Route::get('/worker-category-info/{id}', [WorkerController::class, 'getWorkerCategoryInfo']);
     Route::get('/worker-deactivation-criteria/{id}', [WorkerController::class, 'checkWorkerDeactivationCriteria']);
-    Route::get('/worker-payment-summary', [WorkerController::class, 'getWorkerPaymentSummary']);
+    Route::get('/worker-payment-summary', [AdminController::class, 'getWorkerPaymentSummary']);
     Route::get('/weekly-earnings/{id}', [WorkerController::class, 'getWeeklyEarnings']);
     // Worker services CRUD
     Route::get('/worker/services', [WorkerController::class, 'listWorkerServices']);

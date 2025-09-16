@@ -306,4 +306,78 @@ class ReviewController extends Controller
             return response()->json(['error' => 'Internal server error'], 500);
         }
     }
+
+    /**
+     * Admin: list all reviews with joins for names
+     */
+    public function adminIndex(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
+            $profile = Profile::where('id', $user->id)->first();
+            if (!$profile || $profile->user_type !== 'admin') {
+                return response()->json(['error' => 'Access denied'], 403);
+            }
+
+            $page = (int) $request->get('page', 1);
+            $perPage = (int) $request->get('per_page', 20);
+            $search = $request->get('search');
+            $rating = $request->get('rating');
+
+            $query = Review::with([
+                'reviewer:id,first_name,last_name',
+                'customer:id,first_name,last_name',
+                'worker.profile:id,first_name,last_name',
+                'booking:id,service_id',
+                'booking.service:id,title',
+            ])->orderBy('created_at', 'desc');
+
+            if (!empty($search)) {
+                $query->where(function ($q) use ($search) {
+                    $q->whereHas('reviewer', function ($q2) use ($search) {
+                        $q2->whereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$search}%"]);
+                    })->orWhereHas('worker.profile', function ($q3) use ($search) {
+                        $q3->whereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", ["%{$search}%"]);
+                    })->orWhere('comment', 'like', "%{$search}%");
+                });
+            }
+
+            if (!empty($rating) && in_array((int)$rating, [1,2,3,4,5], true)) {
+                $query->where('rating', (int)$rating);
+            }
+
+            $total = (clone $query)->count();
+            if ($perPage > 0) {
+                $query->skip(max(0, ($page - 1) * $perPage))->take($perPage);
+            }
+
+            $rows = $query->get();
+
+            $reviews = $rows->map(function ($r) {
+                return [
+                    'id' => (string)$r->id,
+                    'rating' => (int)$r->rating,
+                    'comment' => (string)($r->comment ?? ''),
+                    'date' => $r->created_at,
+                    'customer' => $r->customer ? trim(($r->customer->first_name ?? '') . ' ' . ($r->customer->last_name ?? '')) : ($r->reviewer ? trim(($r->reviewer->first_name ?? '') . ' ' . ($r->reviewer->last_name ?? '')) : 'Customer'),
+                    'worker' => ($r->worker && $r->worker->profile) ? trim(($r->worker->profile->first_name ?? '') . ' ' . ($r->worker->profile->last_name ?? '')) : 'Worker',
+                    'service' => ($r->booking && $r->booking->service) ? $r->booking->service->title : 'Service',
+                ];
+            });
+
+            return response()->json([
+                'reviews' => $reviews,
+                'totalCount' => $total,
+                'page' => $page,
+                'per_page' => $perPage,
+                'totalPages' => $perPage > 0 ? (int) ceil($total / $perPage) : 1,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('adminIndex reviews error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch reviews'], 500);
+        }
+    }
 }

@@ -7,11 +7,13 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use App\Models\Profile;
 use App\Models\WorkerProfile;
+use App\Models\WorkerAccountStatus;
 use App\Models\Booking;
 use App\Models\Service;
 use App\Models\Payment;
 use App\Models\Review;
 use Illuminate\Support\Str;
+use App\Services\WorkerCategoryService; // ADDED
 
 class WorkerController extends Controller
 {
@@ -344,7 +346,7 @@ class WorkerController extends Controller
             }
 
             // Get worker profile
-            $workerProfile = WorkerProfile::where('id', $id)->first();
+            $workerProfile = WorkerProfile::with('category')->where('id', $id)->first();
             if (!$workerProfile) {
                 return response()->json(['error' => 'Worker profile not found'], 404);
             }
@@ -355,12 +357,32 @@ class WorkerController extends Controller
                 return response()->json(['error' => 'Profile not found'], 404);
             }
 
-            // Get recent bookings
+            // Get all bookings (no limit)
             $recentBookings = Booking::with(['service', 'customer'])
                 ->where('worker_id', $id)
                 ->orderBy('created_at', 'desc')
-                ->limit(5)
                 ->get();
+
+            // Fetch worker services
+            $services = Service::with('category')
+                ->where('worker_id', $id)
+                ->orderBy('created_at', 'desc')
+                ->get()
+                ->map(function ($s) {
+                    return [
+                        'id' => $s->id,
+                        'title' => $s->title,
+                        'description' => $s->description,
+                        'price_min' => (float) $s->price_min,
+                        'price_max' => (float) $s->price_max,
+                        'duration_hours' => (float) $s->duration_hours,
+                        'category_id' => $s->category_id,
+                        // Match frontend expectation: categories.name
+                        'categories' => [
+                            'name' => $s->category ? $s->category->name : null,
+                        ],
+                    ];
+                });
 
             // Get total earnings
             $totalEarnings = Payment::where('worker_id', $id)
@@ -386,87 +408,22 @@ class WorkerController extends Controller
             // Get total reviews
             $totalReviews = Review::where('worker_id', $id)->count();
 
-            // Calculate comprehensive statistics
-            
-            // Monthly gross earnings (total amount before commission)
+            // Monthly gross and commission (derived)
             $monthlyGrossEarnings = Payment::where('worker_id', $id)
                 ->where('payment_status', 'completed')
                 ->whereMonth('created_at', now()->month)
                 ->whereYear('created_at', now()->year)
                 ->sum('total_amount');
-
-            // Monthly commission
             $monthlyCommission = $monthlyGrossEarnings - $monthlyEarnings;
 
-            // Commission rate (average)
+            // Commission rate
             $avgCommissionRate = Payment::where('worker_id', $id)
                 ->where('payment_status', 'completed')
-                ->avg('commission_rate') ?? 0.15; // Default 15%
+                ->avg('commission_rate') ?? 0.15;
 
-            // Active clients (unique customers with completed bookings)
-            $activeClients = Booking::where('worker_id', $id)
-                ->where('status', 'completed')
-                ->distinct('customer_id')
-                ->count('customer_id');
-
-            // New clients this month
-            $newClientsThisMonth = Booking::where('worker_id', $id)
-                ->where('status', 'completed')
-                ->whereMonth('created_at', now()->month)
-                ->whereYear('created_at', now()->year)
-                ->distinct('customer_id')
-                ->count('customer_id');
-
-            // Jobs this month
-            $jobsThisMonth = Booking::where('worker_id', $id)
-                ->whereMonth('created_at', now()->month)
-                ->whereYear('created_at', now()->year)
-                ->count();
-
-            // Repeat customers
-            $repeatCustomers = Booking::selectRaw('customer_id, COUNT(*) as booking_count')
-                ->where('worker_id', $id)
-                ->where('status', 'completed')
-                ->groupBy('customer_id')
-                ->havingRaw('COUNT(*) > 1')
-                ->count();
-
-            // Response rate (percentage of service requests responded to)
-            $totalServiceRequests = \App\Models\ServiceRequest::where('worker_id', $id)->count();
-            $respondedServiceRequests = \App\Models\ServiceRequest::where('worker_id', $id)
-                ->where('status', 'responded')
-                ->count();
-            $responseRate = $totalServiceRequests > 0 ? round(($respondedServiceRequests / $totalServiceRequests) * 100, 1) : 100;
-
-            // On-time rate (bookings completed on or before scheduled date)
-            $onTimeBookings = Booking::where('worker_id', $id)
-                ->where('status', 'completed')
-                ->whereNotNull('worker_completed_at')
-                ->whereRaw('worker_completed_at <= created_at + INTERVAL \'1 day\'') // Assuming 1 day buffer
-                ->count();
-            $onTimeRate = $completedJobs > 0 ? round(($onTimeBookings / $completedJobs) * 100, 1) : 100;
-
-            // Monthly earnings data for last 6 months
-            $monthlyEarningsData = [];
-            for ($i = 5; $i >= 0; $i--) {
-                $date = now()->subMonths($i);
-                $monthlyTotal = Payment::where('worker_id', $id)
-                    ->where('payment_status', 'completed')
-                    ->whereMonth('created_at', $date->month)
-                    ->whereYear('created_at', $date->year)
-                    ->sum('worker_payout');
-
-                $monthlyEarningsData[] = [
-                    'month' => $date->format('M'),
-                    'earnings' => $monthlyTotal,
-                ];
-            }
-
-            // Get worker category from services
-            $primaryCategory = \App\Models\Service::where('worker_id', $id)
-                ->with('category')
-                ->first();
-            $category = $primaryCategory && $primaryCategory->category ? $primaryCategory->category->name : 'General';
+            $categoryName = $workerProfile->category ? $workerProfile->category->name : null;
+            $categoryCommissionRate = $workerProfile->category ? (float)$workerProfile->category->commission_rate : null;
+            $effectiveCommissionRate = $categoryCommissionRate !== null ? (float)$categoryCommissionRate : (float)$avgCommissionRate;
 
             return response()->json([
                 'success' => true,
@@ -486,9 +443,13 @@ class WorkerController extends Controller
                     'experience_years' => $workerProfile->experience_years,
                     'completed_jobs' => $workerProfile->completed_jobs,
                     'total_earnings' => $workerProfile->total_earnings,
+                    'category' => [
+                        'id' => $workerProfile->category_id,
+                        'name' => $categoryName,
+                        'commission_rate' => $categoryCommissionRate,
+                    ],
                 ],
                 'stats' => [
-                    // Basic stats
                     'total_earnings' => $totalEarnings,
                     'monthly_earnings' => $monthlyEarnings,
                     'monthly_gross_earnings' => $monthlyGrossEarnings,
@@ -496,23 +457,32 @@ class WorkerController extends Controller
                     'completed_jobs' => $completedJobs,
                     'average_rating' => round($averageRating, 2),
                     'total_reviews' => $totalReviews,
-                    
-                    // Advanced stats
-                    'active_clients' => $activeClients,
-                    'new_clients_this_month' => $newClientsThisMonth,
-                    'jobs_this_month' => $jobsThisMonth,
-                    'repeat_customers' => $repeatCustomers,
-                    'response_rate' => $responseRate,
-                    'on_time_rate' => $onTimeRate,
-                    'commission_rate' => round($avgCommissionRate, 4),
-                    'category' => $category,
-                    
-                    // Goals and targets
-                    'monthly_goal' => 3000, // Could be made dynamic later
-                    'monthly_job_goal' => 20, // Could be made dynamic later
-                    
-                    // Monthly earnings data for charts
-                    'monthly_earnings_data' => $monthlyEarningsData,
+                    'active_clients' => Booking::where('worker_id', $id)->where('status', 'completed')->distinct('customer_id')->count('customer_id'),
+                    'new_clients_this_month' => Booking::where('worker_id', $id)->where('status', 'completed')->whereMonth('created_at', now()->month)->whereYear('created_at', now()->year)->distinct('customer_id')->count('customer_id'),
+                    'jobs_this_month' => Booking::where('worker_id', $id)->whereMonth('created_at', now()->month)->whereYear('created_at', now()->year)->count(),
+                    'repeat_customers' => Booking::selectRaw('customer_id, COUNT(*) as booking_count')->where('worker_id', $id)->where('status', 'completed')->groupBy('customer_id')->havingRaw('COUNT(*) > 1')->count(),
+                    'response_rate' => (function() use ($id) {
+                        $totalServiceRequests = \App\Models\ServiceRequest::where('worker_id', $id)->count();
+                        $respondedServiceRequests = \App\Models\ServiceRequest::where('worker_id', $id)->where('status', 'responded')->count();
+                        return $totalServiceRequests > 0 ? round(($respondedServiceRequests / $totalServiceRequests) * 100, 1) : 100;
+                    })(),
+                    'on_time_rate' => (function() use ($id, $completedJobs) {
+                        $onTimeBookings = Booking::where('worker_id', $id)->where('status', 'completed')->whereNotNull('worker_completed_at')->whereRaw('worker_completed_at <= created_at + INTERVAL \'1 day\'')->count();
+                        return $completedJobs > 0 ? round(($onTimeBookings / $completedJobs) * 100, 1) : 100;
+                    })(),
+                    'commission_rate' => round($effectiveCommissionRate, 4),
+                    'category' => $categoryName ?? 'General',
+                    'monthly_goal' => 3000,
+                    'monthly_job_goal' => 20,
+                    'monthly_earnings_data' => (function() use ($id) {
+                        $data = [];
+                        for ($i = 5; $i >= 0; $i--) {
+                            $date = now()->subMonths($i);
+                            $monthlyTotal = Payment::where('worker_id', $id)->where('payment_status', 'completed')->whereMonth('created_at', $date->month)->whereYear('created_at', $date->year)->sum('worker_payout');
+                            $data[] = ['month' => $date->format('M'), 'earnings' => $monthlyTotal];
+                        }
+                        return $data;
+                    })(),
                 ],
                 'recent_jobs' => $recentBookings->map(function ($booking) {
                     return [
@@ -524,10 +494,9 @@ class WorkerController extends Controller
                         'created_at' => $booking->created_at,
                     ];
                 }),
-                // Additional data arrays that frontend expects
                 'upcoming_schedule' => [],
                 'worker_profile' => $workerProfile,
-                'worker_services' => [],
+                'worker_services' => $services,
                 'messages' => ['conversations' => [], 'active_chat' => []],
                 'reviews' => [],
                 'earnings' => [],
@@ -879,6 +848,22 @@ class WorkerController extends Controller
                 $validatedData
             );
 
+            // Ensure worker_account_status row exists and defaults to active=true (do not override if exists)
+            if (!WorkerAccountStatus::where('worker_id', $user->id)->exists()) {
+                WorkerAccountStatus::create([
+                    'id' => (string) \Str::uuid(),
+                    'worker_id' => $user->id,
+                    'is_active' => true,
+                ]);
+            }
+
+            // Auto-assign worker category via service
+            try {
+                app(WorkerCategoryService::class)->assignBestCategory($user->id);
+            } catch (\Throwable $e) {
+                \Log::warning('Auto-assign worker category failed: ' . $e->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Worker profile updated successfully',
@@ -887,6 +872,125 @@ class WorkerController extends Controller
         } catch (\Exception $e) {
             \Log::error('Error updating worker profile: ' . $e->getMessage());
             return response()->json(['error' => 'Failed to update worker profile'], 500);
+        }
+    }
+
+    /**
+     * List services for authenticated worker
+     */
+    public function listWorkerServices(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
+
+            $services = Service::with('category')
+                ->where('worker_id', $user->id)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json(['services' => $services]);
+        } catch (\Throwable $e) {
+            \Log::error('listWorkerServices error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to list services'], 500);
+        }
+    }
+
+    /**
+     * Create a new worker service
+     */
+    public function createWorkerService(Request $request)
+    {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
+
+            $validated = $request->validate([
+                'title' => 'required|string|max:255',
+                'description' => 'required|string|max:2000',
+                'category_id' => 'nullable|string|exists:categories,id',
+                'price_min' => 'required|numeric|min:0',
+                'price_max' => 'required|numeric|min:0|gte:price_min',
+                'duration_hours' => 'required|numeric|min:0.5',
+            ]);
+
+            $service = Service::create([
+                'id' => (string) Str::uuid(),
+                'title' => $validated['title'],
+                'description' => $validated['description'],
+                'price_min' => $validated['price_min'],
+                'price_max' => $validated['price_max'],
+                'duration_hours' => $validated['duration_hours'],
+                'worker_id' => $user->id,
+                'category_id' => $validated['category_id'] ?? null,
+            ]);
+
+            return response()->json(['success' => true, 'service' => $service], 201);
+        } catch (\Illuminate\Validation\ValidationException $ve) {
+            return response()->json(['error' => $ve->errors()], 422);
+        } catch (\Throwable $e) {
+            \Log::error('createWorkerService error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to create service'], 500);
+        }
+    }
+
+    /**
+     * Update worker service
+     */
+    public function updateWorkerService(Request $request, $serviceId)
+    {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
+
+            $service = Service::where('id', $serviceId)->where('worker_id', $user->id)->firstOrFail();
+
+            $validated = $request->validate([
+                'title' => 'sometimes|required|string|max:255',
+                'description' => 'sometimes|required|string|max:2000',
+                'category_id' => 'nullable|string|exists:categories,id',
+                'price_min' => 'sometimes|required|numeric|min:0',
+                'price_max' => 'sometimes|required|numeric|min:0|gte:price_min',
+                'duration_hours' => 'sometimes|required|numeric|min:0.5',
+            ]);
+
+            $service->update($validated);
+
+            return response()->json(['success' => true, 'service' => $service]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['error' => 'Service not found'], 404);
+        } catch (\Throwable $e) {
+            \Log::error('updateWorkerService error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to update service'], 500);
+        }
+    }
+
+    /**
+     * Delete worker service
+     */
+    public function deleteWorkerService(Request $request, $serviceId)
+    {
+        try {
+            $user = Auth::user();
+            if (!$user) {
+                return response()->json(['error' => 'Unauthorized'], 401);
+            }
+
+            $service = Service::where('id', $serviceId)->where('worker_id', $user->id)->firstOrFail();
+            $service->delete();
+
+            return response()->json(['success' => true]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['error' => 'Service not found'], 404);
+        } catch (\Throwable $e) {
+            \Log::error('deleteWorkerService error: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to delete service'], 500);
         }
     }
 

@@ -24,7 +24,8 @@ import {
   MapPin,
   Shield,
   ShieldOff,
-  AlertCircle
+  AlertCircle,
+  CheckCheck
 } from 'lucide-react';
 import { SendOfferDialog } from './SendOfferDialog';
 
@@ -420,22 +421,17 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
 
   return (
     <div className="space-y-6">
-      {/* Hero Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 border border-blue-200">
-        <div className="absolute inset-0 bg-grid-white/10 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))]" />
-        <div className="relative p-8">
+      {/* Header */}
+      <div className="rounded-2xl bg-white border border-border shadow-md">
+        <div className="p-5">
           <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                💬 Message Center
-              </h1>
-              <p className="text-lg text-blue-700">
-                Connect with customers, discuss projects, and build lasting relationships
-              </p>
+            <div>
+              <h1 className="text-xl font-semibold text-foreground">Message Center</h1>
+              <p className="text-sm text-muted-foreground">Chat with customers and manage your conversations</p>
             </div>
             <div className="hidden md:flex items-center space-x-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-sm text-blue-700 font-medium">Online & Available</span>
+              <div className="w-2.5 h-2.5 bg-green-500 rounded-full" />
+              <span className="text-xs text-muted-foreground">Online</span>
             </div>
           </div>
         </div>
@@ -443,26 +439,26 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[700px]">
         {/* Conversations List */}
-        <Card className="lg:col-span-1 bg-gradient-to-br from-white to-blue-50/30 border-2 border-blue-200 shadow-xl">
-          <CardHeader className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg">
+        <Card className="lg:col-span-1 bg-white border border-border shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="bg-muted/50">
             <CardTitle className="flex items-center space-x-2">
               <MessageSquare className="h-5 w-5" />
               <span>Conversations</span>
-              <Badge variant="secondary" className="ml-auto bg-white/20 text-white border-white/30">
+              <Badge className="ml-auto">
                 {conversations.length}
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {/* Search Bar */}
-            <div className="p-4 border-b border-blue-200">
+            <div className="p-3 border-b">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-500" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search conversations..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 border-blue-200 focus:border-blue-400 bg-white/80"
+                  className="pl-10 h-9"
                 />
               </div>
             </div>
@@ -471,43 +467,43 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
             <div className="max-h-[500px] overflow-y-auto">
               {filteredConversations.length === 0 ? (
                 <div className="p-8 text-center">
-                  <MessageSquare className="h-12 w-12 text-blue-300 mx-auto mb-3" />
-                  <p className="text-blue-600 font-medium">No conversations yet</p>
-                  <p className="text-sm text-blue-500">Start chatting with customers to see conversations here</p>
+                  <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-foreground font-medium">No conversations yet</p>
+                  <p className="text-sm text-muted-foreground">Start chatting with customers to see conversations here</p>
                 </div>
               ) : (
                 filteredConversations.map((conversation) => (
                   <div
                     key={conversation.id}
                     onClick={() => selectConversation(conversation)}
-                    className={`p-4 border-b border-blue-100 cursor-pointer transition-all duration-200 hover:bg-blue-50/50 ${
-                      activeConversation?.id === conversation.id ? 'bg-blue-100/70 border-l-4 border-l-blue-500' : ''
+                    className={`p-4 border-b cursor-pointer transition-colors hover:bg-muted/50 ${
+                      activeConversation?.id === conversation.id ? 'bg-muted' : 'bg-white'
                     }`}
                   >
                     <div className="flex items-center space-x-3">
-                      <Avatar className="w-12 h-12 border-2 border-blue-200">
+                      <Avatar className="w-10 h-10 border border-border bg-white">
                         <AvatarImage src="" />
-                        <AvatarFallback className="bg-gradient-to-br from-blue-100 to-indigo-100 text-blue-700 font-semibold">
+                        <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                           {conversation.customer_name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <h4 className="font-semibold text-gray-800 truncate">
+                          <h4 className="font-medium text-foreground truncate">
                             {conversation.customer_name}
                           </h4>
                           {conversation.unread_count > 0 && (
-                            <Badge variant="destructive" className="rounded-full text-xs">
+                            <Badge variant="secondary" className="rounded-full text-xs">
                               {conversation.unread_count}
                             </Badge>
                           )}
                         </div>
-                        <p className="text-sm text-gray-600 truncate mb-2">
+                        <p className="text-sm text-muted-foreground truncate mb-2">
                           {conversation.last_message}
                         </p>
-                        <div className="flex items-center space-x-4 text-xs text-gray-500">
+                        <div className="flex items-center space-x-4 text-xs text-muted-foreground">
                           <div className="flex items-center space-x-1">
-                            <Clock className="h-3 w-3" />
+                            <CheckCheck className="h-3 w-3 text-primary" />
                             <span>{new Date(conversation.last_message_time).toLocaleDateString()}</span>
                           </div>
                         </div>
@@ -521,14 +517,14 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
         </Card>
 
         {/* Chat Area */}
-        <Card className="lg:col-span-2 bg-gradient-to-br from-white to-indigo-50/30 border-2 border-indigo-200 shadow-xl">
-          <CardHeader className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-t-lg">
+        <Card className="lg:col-span-2 bg-white border border-border shadow-sm rounded-2xl overflow-hidden">
+          <CardHeader className="bg-muted/50">
             <CardTitle className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 {activeConversation && (
-                  <Avatar className="w-8 h-8 border-2 border-white/30">
+                  <Avatar className="w-8 h-8 border border-border bg-white">
                     <AvatarImage src="" />
-                    <AvatarFallback className="bg-white/20 text-white font-semibold">
+                    <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                       {activeConversation.customer_name.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
@@ -544,18 +540,18 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
             {activeConversation ? (
               <div className="space-y-4 h-[600px] flex flex-col">
                 {/* Customer Info Bar */}
-                <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-200">
+                <div className="p-4 border-b bg-white/50">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
-                      <Avatar className="w-10 h-10 border-2 border-indigo-200">
+                      <Avatar className="w-10 h-10 border border-border bg-white">
                         <AvatarImage src="" />
-                        <AvatarFallback className="bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-700 font-semibold">
+                        <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                           {activeConversation.customer_name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <h4 className="font-semibold text-indigo-800">{activeConversation.customer_name}</h4>
-                        <div className="flex items-center space-x-4 text-sm text-indigo-600">
+                        <h4 className="font-medium text-foreground">{activeConversation.customer_name}</h4>
+                        <div className="flex items-center space-x-4 text-xs text-muted-foreground">
                           <div className="flex items-center space-x-1">
                             <Clock className="h-3 w-3" />
                             <span>Active now</span>
@@ -565,12 +561,12 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
                     </div>
                     <div className="flex items-center space-x-2">
                       {blockedBy.has(activeConversation.customer_id) ? (
-                        <Badge variant="destructive" className="flex items-center space-x-1">
+                        <Badge variant="secondary" className="flex items-center space-x-1">
                           <ShieldOff className="h-3 w-3" />
                           <span>Blocked</span>
                         </Badge>
                       ) : (
-                        <Badge variant="default" className="flex items-center space-x-1 bg-green-100 text-green-700 border-green-200">
+                        <Badge variant="outline" className="flex items-center space-x-1">
                           <Shield className="h-3 w-3" />
                           <span>Active</span>
                         </Badge>
@@ -580,15 +576,15 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gradient-to-b from-white to-gray-50/50">
+                <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-muted/30">
                   {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
                       <div className="text-center space-y-3">
-                        <div className="w-16 h-16 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full flex items-center justify-center mx-auto">
-                          <MessageSquare className="h-8 w-8 text-indigo-600" />
+                        <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto">
+                          <MessageSquare className="h-8 w-8 text-muted-foreground" />
                         </div>
-                        <p className="text-indigo-600 font-medium">No messages yet</p>
-                        <p className="text-sm text-indigo-500">Start the conversation with a friendly message!</p>
+                        <p className="text-foreground font-medium">No messages yet</p>
+                        <p className="text-sm text-muted-foreground">Start the conversation with a friendly message!</p>
                       </div>
                     </div>
                   ) : (
@@ -599,18 +595,18 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
                       >
                         <div className={`max-w-[80%] break-words whitespace-pre-wrap p-4 rounded-2xl border shadow-sm ${
                           message.is_sender 
-                            ? 'bg-primary text-primary-foreground' 
-                            : 'bg-muted'
+                            ? 'bg-primary/10 border-primary/20' 
+                            : 'bg-white'
                         }`}>
-                          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{message.message_text}</p>
-                          <div className="flex items-center justify-between mt-3 text-xs opacity-80">
+                          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-foreground">{message.message_text}</p>
+                          <div className="flex items-center justify-between mt-3 gap-5 text-xs opacity-80">
                             <span className="text-xs">
                               {new Date(message.created_at).toLocaleTimeString([], { 
                                 hour: '2-digit', 
                                 minute: '2-digit' 
                               })}
                             </span>
-                            {message.is_sender && (<CheckCircle className="h-3 w-3" />)}
+                            {message.is_sender && (<CheckCheck className="h-3 w-3 text-primary " />)}
                           </div>
                         </div>
                       </div>
@@ -620,11 +616,11 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
                 
                 {/* Send Offer Button - Only show if we have the required props */}
                 {serviceIdFromRequest && serviceRequestIdFromRequest && (
-                  <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-t border-green-200">
+                  <div className="p-4 bg-white border-t">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <DollarSign className="h-5 w-5 text-green-600" />
-                        <span className="text-green-800 font-medium">Ready to send an offer?</span>
+                      <div className="flex items-center space-x-2 text-muted-foreground">
+                        <DollarSign className="h-5 w-5" />
+                        <span className="font-medium text-foreground">Ready to send an offer?</span>
                       </div>
                       <SendOfferDialog 
                         customerId={activeConversation.customer_id}
@@ -653,7 +649,7 @@ This is for your ${serviceTitle} request. Would you like to accept this offer? I
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                        className="flex-1 rounded-full"
+                        className="flex-1 rounded-full h-10"
                       />
                       <Button 
                         onClick={sendMessage} 

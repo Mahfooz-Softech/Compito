@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Filter, Star, Clock, TrendingUp, Users } from "lucide-react";
 import { apiClient } from "@/lib/apiClient";
+import WorkerDetailsPopup from "@/components/worker/WorkerDetailsPopup";
+import { useNavigate } from "react-router-dom";
 
 interface Service {
   id: string;
@@ -22,9 +24,17 @@ interface Service {
   rating?: number;
   total_reviews?: number;
   experience_years?: number;
+  location?: string;
+  skills?: string[];
+  // direct fields from backend
+  provider?: string;
+  worker_location?: string;
+  reviews_count?: number;
+  category?: string;
 }
 
 const Services = () => {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [priceRange, setPriceRange] = useState("all");
@@ -32,6 +42,8 @@ const Services = () => {
   const [filteredServices, setFilteredServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [isWorkerDetailsOpen, setIsWorkerDetailsOpen] = useState(false);
+  const [selectedWorker, setSelectedWorker] = useState<Service | null>(null);
 
   // Fetch services from database
   const fetchServices = async () => {
@@ -40,46 +52,44 @@ const Services = () => {
       console.log("Fetching services...");
 
       // Get services from our backend API
-      const servicesResponse = await apiClient.get('/public/services?limit=15');
-      const servicesData = servicesResponse.data;
+      const { data: servicesData } = await apiClient.get('/public/services', { limit: 15 });
 
-      console.log("Fetched services:", servicesData?.length || 0);
+      const servicesArray: any[] = Array.isArray(servicesData) ? servicesData as any[] : [];
+      console.log("Fetched services:", servicesArray.length);
 
-      if (servicesData && servicesData.length > 0) {
-        // Get worker profiles for these services
-        const workerIds = servicesData.map(s => s.worker_id).filter(Boolean);
-        const workerProfilesResponse = await apiClient.get('/public/worker-profiles');
-        const workerProfiles = workerProfilesResponse.data.filter(wp => workerIds.includes(wp.id));
+      if (servicesArray.length > 0) {
+        // Build is_verified map from public worker profiles
+        const workerIds = servicesArray.map((s: any) => s.worker_id).filter(Boolean);
+        const { data: workerProfilesData } = await apiClient.get('/public/worker-profiles');
+        const workerProfilesArray: any[] = Array.isArray(workerProfilesData) ? workerProfilesData as any[] : [];
+        const workerProfileMap = new Map(workerProfilesArray.map((wp: any) => [wp.id, wp]));
 
-        // Get profiles for workers
-        const profilesResponse = await apiClient.get('/public/profiles');
-        const profiles = profilesResponse.data.filter(p => workerIds.includes(p.id));
-
-        // Get categories for services
-        const categoryIds = servicesData.map(s => s.category_id).filter(Boolean);
-        const categoriesResponse = await apiClient.get('/public/categories');
-        const categoriesData = categoriesResponse.data.filter(c => categoryIds.includes(c.id));
-
-        // Create lookup maps
-        const workerProfilesMap = new Map(workerProfiles?.map(wp => [wp.id, wp]) || []);
-        const profilesMap = new Map(profiles?.map(p => [p.id, p]) || []);
-        const categoriesMap = new Map(categoriesData?.map(c => [c.id, c]) || []);
-
-        // Combine all information
-        const servicesWithDetails = servicesData.map(service => {
-          const workerProfile = workerProfilesMap.get(service.worker_id);
-          const profile = profilesMap.get(service.worker_id);
-          const category = categoriesMap.get(service.category_id);
-          
+        // Combine using fields provided by backend services payload
+        const servicesWithDetails = servicesArray.map((service: any) => {
+          const nameFromBackend = service.provider;
+          const wp = workerProfileMap.get(String(service.worker_id)) || {};
           return {
-            ...service,
-            worker_name: profile ? `${profile.first_name} ${profile.last_name}` : 'Unknown Worker',
-            category_name: category?.name || 'Unknown Category',
-            is_verified: workerProfile?.is_verified || false,
-            rating: workerProfile?.rating || 0,
-            total_reviews: workerProfile?.total_reviews || 0,
-            experience_years: workerProfile?.experience_years || 0
-          };
+            id: String(service.id),
+            title: service.title,
+            description: service.description,
+            price_min: Number(service.price_min),
+            price_max: Number(service.price_max),
+            worker_id: String(service.worker_id),
+            category_id: String(service.category_id),
+            // mapping for UI
+            worker_name: nameFromBackend || 'Unknown Worker',
+            category_name: service.category || 'Unknown Category',
+            is_verified: (service.is_verified ?? wp.is_verified) || false,
+            rating: typeof service.rating === 'number' ? service.rating : (typeof wp.rating === 'number' ? wp.rating : 0),
+            total_reviews: typeof service.reviews_count === 'number' ? service.reviews_count : (typeof wp.total_reviews === 'number' ? wp.total_reviews : 0),
+            experience_years: typeof service.experience_years === 'number' ? service.experience_years : (typeof wp.experience_years === 'number' ? wp.experience_years : 0),
+            location: service.worker_location || null,
+            // keep originals in case other parts need them
+            provider: service.provider,
+            worker_location: service.worker_location,
+            reviews_count: service.reviews_count,
+            category: service.category,
+          } as Service;
         });
 
         console.log("Services with details:", servicesWithDetails.length);
@@ -97,12 +107,12 @@ const Services = () => {
   // Fetch categories for filtering
   const fetchCategories = async () => {
     try {
-      const categoriesResponse = await apiClient.get('/public/categories');
-      const categoriesData = categoriesResponse.data;
+      const { data: categoriesData } = await apiClient.get('/public/categories');
+      const categoriesArray: any[] = Array.isArray(categoriesData) ? categoriesData as any[] : [];
 
       const allCategories = [
         { id: "all", name: "All Services" },
-        ...(categoriesData || [])
+        ...categoriesArray
       ];
       setCategories(allCategories);
       console.log("Categories loaded:", allCategories.length);
@@ -318,7 +328,7 @@ const Services = () => {
                         <p className="text-lg font-semibold text-primary">£{service.price_min}-{service.price_max}/hr</p>
                         <p className="text-xs text-muted-foreground">Per hour</p>
                       </div>
-                      <Button className="btn-hero">
+                      <Button className="btn-hero" onClick={() => { setSelectedWorker(service); setIsWorkerDetailsOpen(true); }}>
                         Book Now
                       </Button>
                     </div>
@@ -344,6 +354,22 @@ const Services = () => {
           )}
         </div>
       </section>
+      <WorkerDetailsPopup
+        isOpen={isWorkerDetailsOpen}
+        onClose={() => { setIsWorkerDetailsOpen(false); setSelectedWorker(null); }}
+        worker={selectedWorker ? {
+          id: selectedWorker.id,
+          name: selectedWorker.worker_name || 'Unknown Worker',
+          is_verified: selectedWorker.is_verified || false,
+          rating: selectedWorker.rating || 0,
+          total_reviews: selectedWorker.total_reviews || 0,
+          experience_years: selectedWorker.experience_years || 0,
+          bio: selectedWorker.description ? selectedWorker.description : `Professional ${selectedWorker.title.toLowerCase()} specialist with ${selectedWorker.experience_years || 0}+ years of experience.`,
+          location: selectedWorker.location || null,
+          specialties: selectedWorker.skills || []
+        } : null}
+        onBookNow={() => { setIsWorkerDetailsOpen(false); navigate('/signup'); }}
+      />
     </div>
   );
 };

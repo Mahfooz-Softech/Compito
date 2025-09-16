@@ -14,6 +14,7 @@ use App\Models\StripeCheckout;
 use App\Models\Notification;
 use Stripe\Stripe;
 use Stripe\Checkout\Session;
+use App\Services\WorkerCategoryService; // ADDED
 
 class PaymentController extends Controller
 {
@@ -159,9 +160,7 @@ class PaymentController extends Controller
                     'session_id' => $sessionId
                 ]);
                 
-                // If offer is already accepted, that's okay - payment was already processed
                 if ($offer->status === 'accepted') {
-                    // Find the existing booking for this offer
                     $existingBooking = Booking::where('customer_id', $profile->id)
                         ->where('worker_id', $offer->worker_id)
                         ->where('service_id', $offer->service_id)
@@ -188,18 +187,31 @@ class PaymentController extends Controller
             // Update offer status to accepted
             $offer->update(['status' => 'accepted']);
 
+            // Determine commission rate from worker's category
+            $workerProfile = \App\Models\WorkerProfile::with('category')->where('id', $offer->worker_id)->first();
+            $categoryCommission = null;
+            if ($workerProfile && $workerProfile->category) {
+                $categoryCommission = (float) ($workerProfile->category->commission_rate ?? null);
+            }
+            // Fallback to 15% if no category commission defined
+            $commissionRate = is_numeric($categoryCommission) ? $categoryCommission : 0.15;
+
+            $totalAmount = (float) $offer->price;
+            $commissionAmount = round($totalAmount * $commissionRate, 2);
+            $workerPayout = round($totalAmount - $commissionAmount, 2);
+
             // Create booking
             $booking = Booking::create([
                 'id' => (string) Str::uuid(),
                 'customer_id' => $profile->id,
                 'worker_id' => $offer->worker_id,
                 'service_id' => $offer->service_id,
-                'total_amount' => $offer->price,
-                'commission_rate' => 0.15, // 15% commission
-                'commission_amount' => $offer->price * 0.15,
-                'worker_payout' => $offer->price * 0.85,
+                'total_amount' => $totalAmount,
+                'commission_rate' => $commissionRate,
+                'commission_amount' => $commissionAmount,
+                'worker_payout' => $workerPayout,
                 'status' => 'confirmed',
-                'scheduled_date' => now()->addDays(1), // Default to tomorrow
+                'scheduled_date' => now()->addDays(1),
                 'address' => 'To be determined',
                 'notes' => $offer->description,
                 'stripe_session_id' => $sessionId,
@@ -213,10 +225,10 @@ class PaymentController extends Controller
                 'booking_id' => $booking->id,
                 'customer_id' => $profile->id,
                 'worker_id' => $offer->worker_id,
-                'total_amount' => $offer->price,
-                'commission_rate' => 0.15, // 15% commission
-                'commission_amount' => $offer->price * 0.15,
-                'worker_payout' => $offer->price * 0.85,
+                'total_amount' => $totalAmount,
+                'commission_rate' => $commissionRate,
+                'commission_amount' => $commissionAmount,
+                'worker_payout' => $workerPayout,
                 'payment_status' => 'completed',
                 'payment_method' => 'stripe',
                 'transaction_id' => $sessionId,
@@ -248,7 +260,6 @@ class PaymentController extends Controller
                     'error' => $e->getMessage(),
                     'session_id' => $sessionId
                 ]);
-                // Don't fail the entire request if StripeCheckout update fails
             }
 
             // Create notification for worker
@@ -305,6 +316,13 @@ class PaymentController extends Controller
 
             DB::commit();
 
+            // Recalculate category post-payment for the correct worker
+            try {
+                app(WorkerCategoryService::class)->assignBestCategory($offer->worker_id);
+            } catch (\Throwable $e) {
+                \Log::warning('Post-payment category recalculation failed: ' . $e->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'message' => 'Payment completed successfully',
@@ -313,6 +331,9 @@ class PaymentController extends Controller
                     'status' => $booking->status,
                     'total_amount' => $booking->total_amount,
                     'scheduled_date' => $booking->scheduled_date,
+                    'commission_rate' => $commissionRate,
+                    'commission_amount' => $commissionAmount,
+                    'worker_payout' => $workerPayout,
                 ]
             ]);
 
@@ -376,7 +397,7 @@ class PaymentController extends Controller
                         'message' => 'Payment cancelled for offer ' . $offer->id,
                         'data' => json_encode([
                             'offer_id' => $offer->id,
-                            'customer_id' => $profile->id
+                            'customer_id' => $profile->id,
                         ]),
                         'is_read' => false,
                     ]);
@@ -501,8 +522,6 @@ class PaymentController extends Controller
                 return response()->json(['error' => 'Session ID is required'], 400);
             }
 
-            // For now, simulate successful payment status
-            // In a real implementation, this would check with Stripe/PayPal
             return response()->json([
                 'success' => true,
                 'status' => 'completed',

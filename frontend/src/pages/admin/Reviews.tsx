@@ -1,68 +1,120 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
 import { DataTable } from '@/components/dashboard/DataTable';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useAdminData } from '@/hooks/useAdminData';
+import { apiClient } from '@/lib/apiClient';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
 import { 
-  Star, 
-  MessageSquare, 
-  TrendingUp, 
+  Star,
+  MessageSquare,
+  TrendingUp,
   AlertTriangle,
   Search,
-  Filter
+  Eye,
+  Trash2
 } from 'lucide-react';
 
+interface AdminReviewRow {
+  id: string;
+  rating: number;
+  comment: string;
+  date: string;
+  customer: string;
+  worker: string;
+  service: string;
+}
+
 const AdminReviews = () => {
-  const { loading, allReviews } = useAdminData();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<AdminReviewRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(10);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRating, setFilterRating] = useState('all');
 
-  // Filter reviews based on search term and rating
-  const filteredReviews = allReviews.filter(review => {
-    const matchesSearch = !searchTerm || 
-      review.reviewer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      review.worker.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      review.comment.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesRating = filterRating === 'all' || 
-      (filterRating === 'high' && review.rating >= 4) ||
-      (filterRating === 'medium' && review.rating === 3) ||
-      (filterRating === 'low' && review.rating <= 2);
-    
-    return matchesSearch && matchesRating;
-  });
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [selectedReview, setSelectedReview] = useState<AdminReviewRow | null>(null);
 
-  const reviewColumns = [
+  const fetchReviews = async () => {
+    try {
+      setLoading(true);
+      const params: any = { page: currentPage, per_page: pageSize };
+      if (searchTerm.trim()) params.search = searchTerm.trim();
+      if (filterRating !== 'all') params.rating = filterRating;
+      const { data, error } = await apiClient.get('/admin/reviews', params);
+      if (error) {
+        console.error('Admin reviews fetch error:', error);
+        setRows([]);
+        setTotalCount(0);
+        return;
+      }
+      const reviews = (data?.reviews || []) as AdminReviewRow[];
+      setRows(reviews);
+      setTotalCount(Number(data?.totalCount || reviews.length));
+    } catch (e) {
+      console.error('Admin reviews unexpected error:', e);
+      setRows([]);
+      setTotalCount(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReviews();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, pageSize, filterRating]);
+
+  const handleSearch = () => {
+    setCurrentPage(1);
+    fetchReviews();
+  };
+
+  const openView = (review: AdminReviewRow) => {
+    setSelectedReview(review);
+    setViewModalOpen(true);
+  };
+
+  const deleteReview = async (review: AdminReviewRow) => {
+    try {
+      const { error } = await apiClient.delete(`/admin/reviews/${review.id}`);
+      if (error) {
+        toast({ title: 'Delete failed', description: 'Unable to delete review.', variant: 'destructive' });
+        return;
+      }
+      toast({ title: 'Deleted', description: 'Review removed successfully.' });
+      fetchReviews();
+    } catch (e) {
+      toast({ title: 'Delete failed', description: 'Unexpected error.', variant: 'destructive' });
+    }
+  };
+
+  const reviewColumns = useMemo(() => ([
     { 
-      key: 'reviewer', 
+      key: 'customer', 
       label: 'Customer',
       render: (value: string, row: any) => (
         <div>
-          <p className="font-medium">{value}</p>
-          <p className="text-xs text-muted-foreground">{row.date}</p>
+          <p className="font-medium">{value || 'Customer'}</p>
+          <p className="text-xs text-muted-foreground">{new Date(row.date).toLocaleDateString()}</p>
         </div>
       )
     },
-    { 
-      key: 'worker', 
-      label: 'Worker'
-    },
+    { key: 'worker', label: 'Worker' },
     { 
       key: 'rating', 
       label: 'Rating',
       render: (value: number) => (
         <div className="flex items-center space-x-1">
           {[1, 2, 3, 4, 5].map((star) => (
-            <Star 
-              key={star}
-              className={`h-4 w-4 ${
-                star <= value ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
-              }`}
-            />
+            <Star key={star} className={`h-4 w-4 ${star <= value ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`} />
           ))}
           <span className="ml-2 font-medium">{value}</span>
         </div>
@@ -74,37 +126,15 @@ const AdminReviews = () => {
       render: (value: string) => (
         <div className="max-w-xs">
           <p className="text-sm truncate">{value || 'No comment'}</p>
-          {value && value.length > 50 && (
-            <Button variant="link" size="sm" className="p-0 h-auto text-xs">
-              Read more
-            </Button>
-          )}
-        </div>
-      )
-    },
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (value: any, row: any) => (
-        <div className="flex space-x-2">
-          <Button size="sm" variant="outline" className="h-8">
-            View Full
-          </Button>
-          {row.rating <= 2 && (
-            <Button size="sm" variant="destructive" className="h-8">
-              Flag
-            </Button>
-          )}
         </div>
       )
     }
-  ];
+  ]), []);
 
-  const totalReviews = allReviews.length;
-  const averageRating = totalReviews > 0 ? 
-    allReviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews : 0;
-  const highRatings = allReviews.filter(r => r.rating >= 4).length;
-  const lowRatings = allReviews.filter(r => r.rating <= 2).length;
+  const totalReviews = totalCount;
+  const averageRating = rows.length > 0 ? rows.reduce((sum, r) => sum + (r.rating || 0), 0) / rows.length : 0;
+  const highRatings = rows.filter(r => r.rating >= 4).length;
+  const lowRatings = rows.filter(r => r.rating <= 2).length;
 
   if (loading) {
     return (
@@ -145,12 +175,12 @@ const AdminReviews = () => {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Average Rating</CardTitle>
+              <CardTitle className="text-sm font-medium">Average Rating (page)</CardTitle>
               <Star className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{averageRating.toFixed(1)}</div>
-              <p className="text-xs text-muted-foreground">Platform rating</p>
+              <p className="text-xs text-muted-foreground">On current page</p>
             </CardContent>
           </Card>
 
@@ -177,40 +207,6 @@ const AdminReviews = () => {
           </Card>
         </div>
 
-        {/* Rating Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Rating Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-5 gap-4">
-              {[5, 4, 3, 2, 1].map((rating) => {
-                const count = allReviews.filter(r => r.rating === rating).length;
-                const percentage = totalReviews > 0 ? (count / totalReviews) * 100 : 0;
-                
-                return (
-                  <div key={rating} className="text-center">
-                    <div className="flex items-center justify-center mb-2">
-                      <span className="font-medium mr-2">{rating}</span>
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-2 mb-2">
-                      <div 
-                        className="bg-primary h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                    <div className="text-sm">
-                      <div className="font-medium">{count}</div>
-                      <div className="text-xs text-muted-foreground">{percentage.toFixed(1)}%</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Filters */}
         <Card>
           <CardHeader>
@@ -224,33 +220,75 @@ const AdminReviews = () => {
                   placeholder="Search reviews..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
                   className="pl-10"
                 />
               </div>
-              
-              <Select value={filterRating} onValueChange={setFilterRating}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filter by rating" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Ratings</SelectItem>
-                  <SelectItem value="high">High (4-5 Stars)</SelectItem>
-                  <SelectItem value="medium">Medium (3 Stars)</SelectItem>
-                  <SelectItem value="low">Low (1-2 Stars)</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex gap-3">
+                <Select value={filterRating} onValueChange={(v) => { setFilterRating(v); setCurrentPage(1); }}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Filter by rating" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Ratings</SelectItem>
+                    <SelectItem value="5">5 Stars</SelectItem>
+                    <SelectItem value="4">4 Stars</SelectItem>
+                    <SelectItem value="3">3 Stars</SelectItem>
+                    <SelectItem value="2">2 Stars</SelectItem>
+                    <SelectItem value="1">1 Star</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button onClick={handleSearch} variant="secondary">Apply</Button>
+              </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Reviews Table */}
         <DataTable
-          title={`Reviews (${filteredReviews.length})`}
+          title={`Reviews (${totalCount})`}
           columns={reviewColumns}
-          data={filteredReviews}
-          onView={(review) => console.log('View review:', review)}
-          onEdit={(review) => console.log('Edit review:', review)}
+          data={rows}
+          onView={(review) => openView(review)}
+          onDelete={(review) => deleteReview(review as AdminReviewRow)}
         />
+
+        {/* View Modal */}
+        <Dialog open={viewModalOpen} onOpenChange={setViewModalOpen}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Review Details</DialogTitle>
+            </DialogHeader>
+            {selectedReview && (
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Customer</span>
+                  <span className="font-medium">{selectedReview.customer}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Worker</span>
+                  <span className="font-medium">{selectedReview.worker}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Service</span>
+                  <span className="font-medium">{selectedReview.service}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Rating</span>
+                  <span className="font-medium">{selectedReview.rating}</span>
+                </div>
+                <div>
+                  <span className="text-sm text-muted-foreground">Comment</span>
+                  <p className="mt-1">{selectedReview.comment || 'No comment'}</p>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="destructive" onClick={() => { if (selectedReview) deleteReview(selectedReview); setViewModalOpen(false); }}>Delete</Button>
+                  <Button variant="outline" onClick={() => setViewModalOpen(false)}>Close</Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

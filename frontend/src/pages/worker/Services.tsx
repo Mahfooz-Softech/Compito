@@ -12,53 +12,64 @@ import { useToast } from '@/hooks/use-toast';
 import { apiClient } from '@/lib/apiClient';
 
 const WorkerServices = () => {
-  const { loading, workerProfile, workerServices } = useWorkerData();
+  const { loading, workerServices: initialServices, fetchWorkerData } = useWorkerData();
   const { toast } = useToast();
   const [editService, setEditService] = useState<any>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [services, setServices] = useState<any[]>(initialServices);
 
-  // Memoize handlers to prevent unnecessary re-renders
+  React.useEffect(() => {
+    setServices(initialServices);
+  }, [initialServices]);
+
+  const syncBackend = React.useCallback(() => {
+    // fire-and-forget to sync with backend
+    try { fetchWorkerData?.(); } catch {}
+  }, [fetchWorkerData]);
+
+  const handleAdded = useCallback((created: any) => {
+    if (!created) return;
+    const optimistic = {
+      ...created,
+      categories: created.categories || (created.category ? { name: created.category.name } : undefined),
+    };
+    setServices(prev => [optimistic, ...prev]);
+    syncBackend();
+  }, [syncBackend]);
+
   const handleEdit = useCallback((service: any) => {
     setEditService(service);
     setEditDialogOpen(true);
   }, []);
 
   const handleDelete = useCallback(async (serviceId: string) => {
+    const prev = services;
+    setServices(prev.filter(s => s.id !== serviceId));
     try {
       const res = await apiClient.delete(`/worker/services/${serviceId}`);
       if ((res as any)?.error) throw new Error((res as any).error);
-
-      toast({
-        title: "Service deleted",
-        description: "Your service has been deleted successfully.",
-      });
+      toast({ title: 'Service deleted', description: 'Your service has been deleted successfully.' });
+      syncBackend();
     } catch (error) {
-      console.error('Error deleting service:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete service. Please try again.",
-        variant: "destructive",
-      });
+      setServices(prev); // revert
+      toast({ title: 'Error', description: 'Failed to delete service. Please try again.', variant: 'destructive' });
     }
-  }, [toast]);
+  }, [services, toast, syncBackend]);
 
   const handleEditDialogClose = useCallback(() => {
     setEditDialogOpen(false);
     setEditService(null);
   }, []);
 
-  const handleServiceAdded = useCallback(() => {
-    // No refetch; rely on underlying data updates
-  }, []);
-
-  const handleServiceUpdated = useCallback(() => {
-    // No refetch; just close dialog
+  const handleServiceUpdated = useCallback((updated?: any) => {
     handleEditDialogClose();
-  }, [handleEditDialogClose]);
+    if (!updated) return;
+    setServices(prev => prev.map(s => (s.id === updated.id ? { ...s, ...updated } : s)));
+    syncBackend();
+  }, [handleEditDialogClose, syncBackend]);
 
-  // Memoize service cards to prevent unnecessary re-renders
   const serviceCards = useMemo(() => 
-    workerServices.map((service) => (
+    services.map((service) => (
       <Card key={service.id} className="hover:shadow-md transition-shadow">
         <CardHeader>
           <div className="flex justify-between items-start">
@@ -122,7 +133,7 @@ const WorkerServices = () => {
           </div>
         </CardContent>
       </Card>
-    )), [workerServices, handleEdit, handleDelete]
+    )), [services, handleEdit, handleDelete]
   );
 
   if (loading) {
@@ -141,22 +152,19 @@ const WorkerServices = () => {
   return (
     <DashboardLayout userType="worker" title="My Services">
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold">My Services</h1>
             <p className="text-muted-foreground">Manage your service offerings</p>
           </div>
-          <AddServiceDialog onServiceAdded={handleServiceAdded} />
+          <AddServiceDialog onServiceAdded={handleAdded} />
         </div>
 
-        {/* Services Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {serviceCards}
         </div>
 
-        {/* No Services Message */}
-        {workerServices.length === 0 && (
+        {services.length === 0 && (
           <Card>
             <CardContent className="text-center py-12">
               <Plus className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -167,7 +175,6 @@ const WorkerServices = () => {
         )}
       </div>
 
-      {/* Edit Service Dialog */}
       <EditServiceDialog
         service={editService}
         open={editDialogOpen}

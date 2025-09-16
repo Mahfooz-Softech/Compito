@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use App\Models\AuthUser;
 use App\Models\Profile;
 use App\Services\EmailService;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\HasApiTokens;
 
 class AuthController extends Controller
@@ -235,5 +236,91 @@ class AuthController extends Controller
             \Log::error('Profile update error: ' . $e->getMessage());
             return response()->json(['error' => 'Profile update failed'], 500);
         }
+    }
+
+    /**
+     * Forgot password: issue reset token and send email
+     */
+    public function forgotPassword(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+        $email = $request->input('email');
+
+        try {
+            $user = AuthUser::where('email', $email)->first();
+            if (!$user) {
+                // Do not reveal if user exists
+                return response()->json(['message' => 'If the email exists, a reset link has been sent.']);
+            }
+
+            $token = Str::random(64);
+            DB::table('password_resets')->updateOrInsert(
+                ['email' => $email],
+                [
+                    'token' => Hash::make($token),
+                    'created_at' => now(),
+                ]
+            );
+
+            $frontendBase = config('app.frontend_url');
+            $resetUrl = rtrim($frontendBase, '/') . '/reset-password?token=' . $token . '&email=' . urlencode($email);
+            try {
+                // Render and send a branded password reset email view
+                \Mail::send('emails.password-reset', ['resetUrl' => $resetUrl], function($m) use ($email) {
+                    $m->to($email)->subject('Reset Your Password - Compito');
+                    $logoPath = public_path('compito.png');
+                    if (file_exists($logoPath)) {
+                        $m->getSymfonyMessage()->embed($logoPath, 'compito_logo');
+                    }
+                });
+            } catch (\Throwable $e) {
+                \Log::error('Failed to send reset email: ' . $e->getMessage());
+            }
+
+            return response()->json(['message' => 'If the email exists, a reset link has been sent.']);
+        } catch (\Throwable $e) {
+            // Log and still return generic success to avoid user enumeration
+            \Log::error('Forgot password failure: ' . $e->getMessage());
+            return response()->json(['message' => 'If the email exists, a reset link has been sent.']);
+        }
+    }
+
+    /**
+     * Reset password: validate token and update password
+     */
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'token' => 'required|string',
+            'password' => 'required|min:8|confirmed',
+        ]);
+
+        $email = $request->input('email');
+        $tokenPlain = $request->input('token');
+        $password = $request->input('password');
+
+        $record = DB::table('password_resets')->where('email', $email)->first();
+        if (!$record || !Hash::check($tokenPlain, $record->token)) {
+            return response()->json(['error' => 'Invalid or expired token'], 400);
+        }
+
+        // Optional: check token age (e.g., 60 minutes)
+        if (isset($record->created_at) && now()->diffInMinutes(\Carbon\Carbon::parse($record->created_at)) > 60) {
+            return response()->json(['error' => 'Token expired'], 400);
+        }
+
+        $user = AuthUser::where('email', $email)->first();
+        if (!$user) {
+            return response()->json(['error' => 'User not found'], 404);
+        }
+
+        $user->encrypted_password = Hash::make($password);
+        $user->save();
+
+        // Cleanup token
+        DB::table('password_resets')->where('email', $email)->delete();
+
+        return response()->json(['message' => 'Password has been reset successfully']);
     }
 }

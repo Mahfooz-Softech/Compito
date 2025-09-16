@@ -11,7 +11,7 @@ import { Plus } from 'lucide-react';
 import { apiClient } from '@/lib/apiClient';
 
 interface AddServiceDialogProps {
-  onServiceAdded: () => void;
+  onServiceAdded?: (service: any) => void;
 }
 
 const AddServiceDialog = ({ onServiceAdded }: AddServiceDialogProps) => {
@@ -31,12 +31,15 @@ const AddServiceDialog = ({ onServiceAdded }: AddServiceDialogProps) => {
 
   const [categories, setCategories] = useState<{id: string, name: string}[]>([]);
 
-  // Fetch categories from Laravel
+  // Fetch categories from Laravel (public endpoint)
   const fetchCategories = async () => {
     try {
-      const res = await apiClient.get('/admin/categories');
-      const data = (res as any)?.data || [];
-      setCategories((data as any[]).map((c: any) => ({ id: c.id, name: c.name })));
+      const res = await apiClient.get('/public/categories');
+      const payload: any = (res as any)?.data;
+      const list: any[] = Array.isArray(payload)
+        ? payload
+        : (Array.isArray(payload?.categories) ? payload.categories : []);
+      setCategories(list.map((c: any) => ({ id: String(c.id), name: c.name })));
     } catch (e) {
       setCategories([]);
     }
@@ -61,13 +64,19 @@ const AddServiceDialog = ({ onServiceAdded }: AddServiceDialogProps) => {
         duration_hours: parseFloat(formData.duration_hours) || 1,
       };
 
-      const res = await apiClient.post('/worker/services', payload);
-      if ((res as any)?.error) throw new Error((res as any).error);
+      const res: any = await apiClient.post('/worker/services', payload);
+      if (res?.error) throw new Error(res.error);
+      const created = res?.data?.service || res?.service || null;
 
       toast({
         title: "Service added",
         description: "Your new service has been added successfully.",
       });
+
+      // Optimistic update callback
+      if (created && onServiceAdded) {
+        onServiceAdded(created);
+      }
 
       setFormData({
         title: '',
@@ -79,7 +88,6 @@ const AddServiceDialog = ({ onServiceAdded }: AddServiceDialogProps) => {
         location_type: 'client_location'
       });
       setOpen(false);
-      onServiceAdded();
     } catch (error) {
       console.error('Error adding service:', error);
       toast({
