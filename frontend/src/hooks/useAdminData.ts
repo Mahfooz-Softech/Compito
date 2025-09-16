@@ -153,8 +153,8 @@ export const useAdminData = () => {
       setWorkerCategories(data.workerCategories || []);
       setCommissionSettings(data.commissionSettings || []);
 
-      setRecentWorkers((data.workers || []).slice(0, 10));
-      setRecentBookings((data.bookings || []).slice(0, 10));
+      setRecentWorkers((data.workers || []).slice(0, 5));
+      setRecentBookings((data.bookings || []).slice(0, 5));
 
       const alerts: any[] = [];
       if ((data.workers || []).some((w: any) => w.status === 'pending')) {

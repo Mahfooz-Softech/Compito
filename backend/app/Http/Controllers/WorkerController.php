@@ -543,43 +543,52 @@ class WorkerController extends Controller
                 ];
             }
 
-            // Get total lifetime earnings
-            $totalEarnings = Payment::where('worker_id', $id)
+            // Totals
+            $totalEarnings = (float) Payment::where('worker_id', $id)
                 ->where('payment_status', 'completed')
                 ->sum('worker_payout');
 
-            // Get current month earnings
-            $currentMonthEarnings = Payment::where('worker_id', $id)
+            $totalCommission = (float) Payment::where('worker_id', $id)
+                ->where('payment_status', 'completed')
+                ->sum('commission_amount');
+
+            $totalAmount = (float) Payment::where('worker_id', $id)
+                ->where('payment_status', 'completed')
+                ->sum('total_amount');
+
+            // Current/last month earnings
+            $currentMonthEarnings = (float) Payment::where('worker_id', $id)
                 ->where('payment_status', 'completed')
                 ->whereMonth('created_at', now()->month)
                 ->whereYear('created_at', now()->year)
                 ->sum('worker_payout');
 
-            // Get last month earnings
-            $lastMonthEarnings = Payment::where('worker_id', $id)
+            $lastMonthEarnings = (float) Payment::where('worker_id', $id)
                 ->where('payment_status', 'completed')
                 ->whereMonth('created_at', now()->subMonth()->month)
                 ->whereYear('created_at', now()->subMonth()->year)
                 ->sum('worker_payout');
 
-            // Get pending payments
-            $pendingEarnings = Payment::where('worker_id', $id)
+            // Pending
+            $pendingEarnings = (float) Payment::where('worker_id', $id)
                 ->where('payment_status', 'pending')
                 ->sum('worker_payout');
 
-            // Get recent transactions
-            $recentTransactions = Payment::with(['booking.service', 'booking.customer'])
+            // All transactions (no limit)
+            $transactions = Payment::with(['booking.service', 'booking.customer'])
                 ->where('worker_id', $id)
                 ->orderBy('created_at', 'desc')
-                ->limit(10)
                 ->get()
                 ->map(function ($payment) {
                     return [
-                        'id' => $payment->id,
-                        'amount' => $payment->worker_payout,
-                        'status' => $payment->payment_status,
-                        'service_title' => $payment->booking->service->title ?? 'Unknown Service',
-                        'customer_name' => $payment->booking->customer->first_name . ' ' . $payment->booking->customer->last_name,
+                        'id' => (string) $payment->id,
+                        'total_amount' => (float) $payment->total_amount,
+                        'commission_rate' => (float) $payment->commission_rate,
+                        'commission_amount' => (float) $payment->commission_amount,
+                        'worker_payout' => (float) $payment->worker_payout,
+                        'payment_status' => $payment->payment_status,
+                        'service_title' => $payment->booking && $payment->booking->service ? ($payment->booking->service->title ?? 'Unknown Service') : 'Unknown Service',
+                        'customer_name' => $payment->booking && $payment->booking->customer ? (($payment->booking->customer->first_name ?? '') . ' ' . ($payment->booking->customer->last_name ?? '')) : 'Customer',
                         'created_at' => $payment->created_at,
                     ];
                 });
@@ -587,13 +596,15 @@ class WorkerController extends Controller
             return response()->json([
                 'success' => true,
                 'earnings' => [
-                    'total_earnings' => $totalEarnings,
-                    'current_month_earnings' => $currentMonthEarnings,
-                    'last_month_earnings' => $lastMonthEarnings,
-                    'pending_earnings' => $pendingEarnings,
+                    'total_amount' => round($totalAmount, 2),
+                    'total_commission' => round($totalCommission, 2),
+                    'total_earnings' => round($totalEarnings, 2),
+                    'current_month_earnings' => round($currentMonthEarnings, 2),
+                    'last_month_earnings' => round($lastMonthEarnings, 2),
+                    'pending_earnings' => round($pendingEarnings, 2),
                     'monthly_breakdown' => $monthlyEarnings,
                 ],
-                'recent_transactions' => $recentTransactions,
+                'transactions' => $transactions,
             ]);
         } catch (\Exception $e) {
             \Log::error('Error fetching worker earnings: ' . $e->getMessage());

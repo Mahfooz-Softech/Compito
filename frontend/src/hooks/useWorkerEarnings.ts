@@ -6,8 +6,8 @@ export interface EarningRecord {
   id: string;
   bookingId: string;
   service: string;
-  amount: number;
-  grossAmount: number;
+  amount: number; // worker payout
+  grossAmount: number; // total amount
   commissionAmount: number;
   commissionRate: number;
   date: string;
@@ -43,29 +43,34 @@ export const useWorkerEarnings = () => {
       const data: any = response?.data || {};
 
       const safe = {
-        total: Number(data.earnings?.total_earnings ?? 0),
+        total: Number(data.earnings?.total_earnings ?? data.earnings?.total_amount ?? 0),
         thisMonth: Number(data.earnings?.current_month_earnings ?? 0),
-        average: Number(data.earnings?.current_month_earnings ?? 0), // Use current month as average for now
-        jobsThisMonth: 0, // This will be calculated from bookings
+        average: Number(data.earnings?.current_month_earnings ?? 0),
+        jobsThisMonth: 0,
         lastMonthTotal: Number(data.earnings?.last_month_earnings ?? 0)
       };
       setEarnings(safe);
-      // Transform recent transactions to match EarningRecord interface
-      const transformedRecentEarnings = Array.isArray(data.recent_transactions) ? data.recent_transactions.map(transaction => ({
-        id: transaction.id,
-        bookingId: transaction.id, // Use same ID for now
-        service: transaction.service_title || 'Unknown Service',
-        amount: Number(transaction.amount || 0),
-        grossAmount: Number(transaction.amount || 0) * 1.15, // Estimate gross (15% commission)
-        commissionAmount: Number(transaction.amount || 0) * 0.15, // 15% commission
-        commissionRate: 0.15,
-        date: transaction.created_at ? new Date(transaction.created_at).toLocaleDateString() : 'N/A',
-        duration: 'N/A', // Not available in current API
-        status: transaction.status,
-        customer: transaction.customer_name || 'Customer',
-        isPending: transaction.status === 'pending'
-      })) : [];
-      
+
+      // Prefer new 'transactions' field, fallback to 'recent_transactions'
+      const tx = Array.isArray(data.transactions)
+        ? data.transactions
+        : (Array.isArray(data.recent_transactions) ? data.recent_transactions : []);
+
+      const transformedRecentEarnings: EarningRecord[] = tx.map((t: any) => ({
+        id: String(t.id),
+        bookingId: String(t.booking_id || t.id),
+        service: t.service_title || 'Unknown Service',
+        amount: Number(t.worker_payout ?? t.amount ?? 0),
+        grossAmount: Number(t.total_amount ?? t.amount ?? 0),
+        commissionAmount: Number(t.commission_amount ?? 0),
+        commissionRate: Number(t.commission_rate ?? 0),
+        date: t.created_at ? new Date(t.created_at).toLocaleDateString() : 'N/A',
+        duration: 'N/A',
+        status: t.payment_status || t.status || 'completed',
+        customer: t.customer_name || 'Customer',
+        isPending: (t.payment_status || t.status) === 'pending'
+      }));
+
       setRecentEarnings(transformedRecentEarnings);
 
     } catch (error) {
@@ -93,7 +98,7 @@ export const useWorkerEarnings = () => {
   };
 };
 
-// Weekly earnings hook for dashboard
+// Weekly earnings hook for dashboard remains unchanged
 export const useWeeklyEarnings = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -116,7 +121,6 @@ export const useWeeklyEarnings = () => {
       const response = await apiClient.get(`/weekly-earnings/${user?.id}`);
       const data: any = response?.data || {};
 
-      // Extract weekly earnings data from API response
       const weeklyData = data.weeklyEarnings || {};
 
       setWeeklyEarnings({

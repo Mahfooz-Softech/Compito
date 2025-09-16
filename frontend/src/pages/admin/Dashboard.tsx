@@ -700,7 +700,11 @@ const AdminDashboard = () => {
                 <DataTable
                   title="Recent Worker Applications"
                   columns={workerColumns}
-                  data={recentWorkers}
+                  data={recentWorkers.map((w: any) => ({
+                    ...w,
+                    experience:
+                      ((w?.experience_years ?? w?.experienceYears ?? w?.profile?.experience_years ?? w?.worker_profile?.experience_years ?? 0)) + ' years'
+                  }))}
                   onView={(worker) => console.log('View worker:', worker)}
                   onEdit={(worker) => console.log('Edit worker:', worker)}
                   onDelete={(worker) => console.log('Delete worker:', worker)}
@@ -727,28 +731,28 @@ const AdminDashboard = () => {
     {
       title: "Total Users",
       value: stats.totalUsers.toString(),
-      change: "+573 new this month",
+      change: "",
       changeType: "positive" as const,
       icon: Users
     },
     {
       title: "Platform Revenue",
       value: `$${stats.totalRevenue.toLocaleString()}`,
-      change: "+12% from last month", 
+      change: "", 
       changeType: "positive" as const,
       icon: DollarSign
     },
     {
       title: "Active Bookings",
       value: stats.activeBookings.toString(),
-      change: "+89 today",
+      change: "",
       changeType: "positive" as const,
       icon: Briefcase
     },
     {
       title: "Growth Rate",
       value: `+${stats.growthRate}%`,
-      change: "vs last quarter",
+      change: "",
       changeType: "positive" as const,
       icon: TrendingUp
     }

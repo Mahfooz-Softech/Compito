@@ -100,10 +100,10 @@ const WorkerEarnings = () => {
                           <Calendar className="h-4 w-4" />
                           <span>{earning.date}</span>
                         </div>
-                        <div className="flex items-center space-x-1">
+                        {/* <div className="flex items-center space-x-1">
                           <Clock className="h-4 w-4" />
                           <span>{earning.duration}</span>
-                        </div>
+                        </div> */}
                       </div>
                     </div>
                     <div className="text-right space-y-1">
